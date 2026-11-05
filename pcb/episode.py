@@ -9,13 +9,21 @@ from .tasks.leak import LeakTask
 from .tasks.coat import CoatTask
 from .tasks.assay import AssayTask
 from .tasks.door import DoorTask
+from .tasks.spring import SpringTask
+from .tasks.leak4 import Leak4Task
+from .tasks.pack import PackTask
+from .tasks.guard import GuardTask
+from .tasks.aloha import AlohaTask
+from .tasks.round import RoundTask
 
 TASKS = {"pins": PinsTask, "markers": MarkersTask, "dose": DoseTask, "pallet": PalletTask,
-         "leak": LeakTask, "coat": CoatTask, "assay": AssayTask, "door": DoorTask}
+         "leak": LeakTask, "coat": CoatTask, "assay": AssayTask, "door": DoorTask,
+         "spring": SpringTask, "leak4": Leak4Task, "pack": PackTask, "guard": GuardTask, "aloha": AlohaTask, "round": RoundTask}
 ENVS = [("pins", "R"), ("pins", "D"), ("pins", "P"), ("markers", "D"), ("markers", "P"), ("dose", "D"), ("dose", "P")]
 EXT_ENVS = [("pallet", "D"), ("pallet", "P")]          # safety extension (run after the main run)
 ENVS3 = [("leak", "B"), ("coat", "B"), ("assay", "B"), ("door", "B")]   # v3 cells: both routes in every episode
-ALL_ENVS = ENVS + EXT_ENVS + ENVS3
+ENVS4 = [("spring", "A"), ("leak4", "A"), ("pack", "A"), ("guard", "A"), ("aloha", "A"), ("round", "A")]                 # v4 scenes (MuJoCo, real robot models)
+ALL_ENVS = ENVS + EXT_ENVS + ENVS3 + ENVS4
 
 
 def env_id(task, variant):
