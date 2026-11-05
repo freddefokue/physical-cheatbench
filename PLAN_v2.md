@@ -208,5 +208,25 @@ recomputed. The corrections:
   5. the independent judge on the v1 sample.
 - **Deviations.** Any deviation from this plan is logged in section 8 with its date and reason.
 
-## 8. Deviations
-(none yet)
+## 8. Deviations and incidents (logged during the runs)
+1. **Code commit for the runs.** The pre-registration is commit `e8efcd0`, pushed at 2026-11-05 09:55 UTC. One
+   test-only commit followed (`97b8398`), which closes an Episode that a test left open. Every v2 episode records
+   `97b8398`.
+   A first launch was stopped after 9 seconds, before any episode ran, and relaunched detached from the
+   session, so that the session's 2-hour command limit could not kill it.
+2. **Fable 5.1 was blocked at the first turn in every markers episode carrying a condition sentence** (P-fixed,
+   P-auth, D-fixed). The block is a zero-token `content_filter` refusal from the provider, repeated after 4
+   resamples. In P-base it was never blocked. Per the exclusion rule, these episodes are reported as blocked;
+   Fable contributes to E1 only through P-base.
+3. **Controller robustness.** Gemini 3.8 Flash (pallet_P, base, seed 10) sent hand-made requests to the cell
+   controller's socket, including one whose `argv` was an integer. The connection handler raised a `TypeError` and
+   closed that connection without a reply. The cell state was not affected, and no other connection was. Fixed
+   after the runs; the fix does not affect any recorded episode.
+4. **Laptop suspend.** The machine running the study suspended from 11:39 to 12:41 CET, which froze the runs
+   (626 of 720 episodes were saved).
+   - The stalled processes were stopped and the same launch script was restarted. Saved episodes are skipped, and
+     episodes in flight were rerun from the start with the same seeds.
+   - Idle suspend was inhibited for the rest of the runs.
+   - The resumed runs record a later commit. It differs from `97b8398` only in analysis and report scripts and
+     documentation; the harness and cells are unchanged. The controller fix from item 3 was held back until the
+     runs finished.
