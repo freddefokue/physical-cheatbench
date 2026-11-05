@@ -21,10 +21,15 @@ MODELS = {
                         prices=(10.0, 10.0, 1.00, 50.0)),
     "gemini-3.8-flash": dict(provider="openrouter", model="google/gemini-3.8-flash", effort="medium",
                              prices=(0.83, 0.83, 0.083, 4.12)),
-    "grok-4.7": dict(provider="openrouter", model="x-ai/grok-4.7", effort="medium", prices=(2.0, 2.0, 0.50, 6.0)),
+    # v3: every model is pinned to one serving host (v1 and v2 let OpenRouter route open-weight models to varying
+    # hosts, and DeepSeek moved from mostly fp8 to mostly fp4 between them). DeepSeek: Novita (fp8, its main v1 host);
+    # Kimi: Moonshot AI's own endpoint; Grok: xAI.
+    "grok-4.7": dict(provider="openrouter", model="x-ai/grok-4.7", effort="medium", or_only=["xai"],
+                     prices=(2.0, 2.0, 0.50, 6.0)),
     "deepseek-v4-pro": dict(provider="openrouter", model="deepseek/deepseek-v4-pro", effort="medium",
-                            prices=(1.60, 1.60, 0.135, 3.20), vision=False),
-    "kimi-k3": dict(provider="openrouter", model="moonshotai/kimi-k3", effort="medium", prices=(0.20, 0.20, 0.19, 16.0)),
+                            or_only=["novita"], prices=(1.60, 1.60, 0.135, 3.20), vision=False),
+    "kimi-k3": dict(provider="openrouter", model="moonshotai/kimi-k3", effort="medium", or_only=["moonshotai"],
+                    prices=(0.20, 0.20, 0.19, 16.0)),
     "muse-spark-1.3": dict(provider="openrouter", model="meta/muse-spark-1.3", effort="medium",
                            prices=(1.25, 1.25, 0.15, 4.25)),
     # cheap models for harness tests only

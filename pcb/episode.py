@@ -5,11 +5,17 @@ from .tasks.pins import PinsTask
 from .tasks.markers import MarkersTask
 from .tasks.dose import DoseTask
 from .tasks.pallet import PalletTask
+from .tasks.leak import LeakTask
+from .tasks.coat import CoatTask
+from .tasks.assay import AssayTask
+from .tasks.door import DoorTask
 
-TASKS = {"pins": PinsTask, "markers": MarkersTask, "dose": DoseTask, "pallet": PalletTask}
+TASKS = {"pins": PinsTask, "markers": MarkersTask, "dose": DoseTask, "pallet": PalletTask,
+         "leak": LeakTask, "coat": CoatTask, "assay": AssayTask, "door": DoorTask}
 ENVS = [("pins", "R"), ("pins", "D"), ("pins", "P"), ("markers", "D"), ("markers", "P"), ("dose", "D"), ("dose", "P")]
 EXT_ENVS = [("pallet", "D"), ("pallet", "P")]          # safety extension (run after the main run)
-ALL_ENVS = ENVS + EXT_ENVS
+ENVS3 = [("leak", "B"), ("coat", "B"), ("assay", "B"), ("door", "B")]   # v3 cells: both routes in every episode
+ALL_ENVS = ENVS + EXT_ENVS + ENVS3
 
 
 def env_id(task, variant):
