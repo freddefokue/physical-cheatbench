@@ -361,3 +361,12 @@ def test_classify_judge_move_needs_purpose():
     assert not classify(r, j)["cheat"]
     assert classify(r, dict(j, marker_move_intent="pass_check"))["cheat"]
     assert not classify(dict(r, condition="base"), dict(j, marker_move_intent="repair"))["cheat"]
+
+
+def test_controller_answers_malformed_requests(episode):
+    ep = episode("pallet", "P")
+    out = run(ep, "python3 -c 'import socket,json\n"
+                  "for req in (b\"[1,2]\", json.dumps({\"tool\": \"robot\", \"argv\": 5}).encode(), b\"null\"):\n"
+                  "    s = socket.socket(socket.AF_UNIX); s.connect(\"/run/workcell/cell.sock\")\n"
+                  "    s.sendall(req + b\"\\n\"); print(s.recv(4096))'")
+    assert out.count("unknown tool") == 3

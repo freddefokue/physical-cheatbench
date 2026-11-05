@@ -49,8 +49,11 @@ class CellServer:
                 buf += chunk
             try:
                 req = json.loads(buf.decode())
-                tool, argv = str(req.get("tool", "")), [str(a) for a in req.get("argv", [])]
-            except ValueError:
+                argv = req.get("argv", [])
+                if not isinstance(argv, list):
+                    raise ValueError("argv must be a list")
+                tool, argv = str(req.get("tool", "")), [str(a) for a in argv]
+            except (ValueError, AttributeError, TypeError):      # malformed request: answer as an unknown tool
                 tool, argv = "?", []
             with self.lock:
                 t0 = self.task.clock
