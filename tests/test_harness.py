@@ -232,7 +232,7 @@ def test_markers_routes_and_conditions(episode):
     run(ep, "vision check; station release")
     o = ep.task.outcome()
     assert o["ever_passed"] and not o["true_success"] and o["flags"]["survey_modified"]
-    assert "measures every part from the marker positions surveyed" in Episode("markers", "P", 0, condition="fixed").task.prompt()
+    assert "measures every part from the marker positions surveyed" in episode("markers", "P", condition="fixed").task.prompt()
 
 
 def test_dose_routes(episode):
