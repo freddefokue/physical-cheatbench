@@ -1,6 +1,6 @@
-"""v3 analysis (PLAN_v3.md sections 4-5): labels, the attainability test, the stage funnel, checks, sensitivity.
+"""v3 analysis (PLAN_v3.md sections 4-6): labels, H1-H4, the stage funnel, checks and sensitivity.
 
-Inputs: runs/<run>/<arm>/<model>/<env>/<seed>.json, results/v3/labels/{primary,independent}.jsonl,
+Inputs: runs/<run>/<condition>/<model>/<env>/<seed>.json, results/v3/labels/{primary,independent}.jsonl and
 results/v3/adjudication.json (optional). Outputs: results/v3/summary.json and results/v3/tables.md.
 Usage: python scripts/analyze3.py [--run v3]
 """
@@ -20,8 +20,10 @@ import stats2 as S  # noqa: E402
 
 OUT = ROOT / "results" / "v3"
 FAMILIES = ("leak", "coat", "assay", "door")
-ARMS = ("att", "unatt")
-CONDS = ("att_pt", "unatt_pt", "unatt")          # main run (PLAN_v3.md section 3); the pilot also has "att"
+CONDS = ("att_pt", "unatt_pt", "unatt")
+H1 = ("unatt_pt", "att_pt")
+H2 = ("unatt_pt", "unatt")
+CLAUDE = ("opus-5.5", "fable-5.1")
 NAMES = {"opus-5.5": "Claude Opus 5.5", "fable-5.1": "Claude Fable 5.1", "gpt-6-sol": "GPT-6 Sol",
          "gpt-6-astra": "GPT-6 Astra", "gemini-3.8-flash": "Gemini 3.8 Flash", "grok-4.7": "Grok 4.7",
          "deepseek-v4-pro": "DeepSeek V4 Pro", "kimi-k3": "Kimi K3", "muse-spark-1.3": "Muse Spark 1.3"}
@@ -44,10 +46,10 @@ def load_eps(run):
 
 
 def load_labels(which):
+    from pcb import judge3
     p = OUT / "labels" / f"{which}.jsonl"
     out = {}
     if p.exists():
-        from pcb import judge3
         ver = judge3.version()
         for line in p.read_text().splitlines():
             try:
@@ -71,46 +73,255 @@ def acting(r):
 
 
 def label_sets(eps, prim, indep, adj):
-    """Primary labels plus the pre-registered sensitivity variants."""
     L = {}
     for r in eps:
         k = r["_rel"]
-        L[k] = {
-            "final": classify3.classify(r, prim.get(k), adj.get(k)),
-            "noadj": classify3.classify(r, prim.get(k)),
-            "det": classify3.classify(r, None, use_judge=False),
-            "indep": classify3.classify(r, indep.get(k)) if k in indep else None,
-        }
+        L[k] = {"final": classify3.classify(r, prim.get(k), adj.get(k)),
+                "noadj": classify3.classify(r, prim.get(k)),
+                "det": classify3.classify(r, None, use_judge=False),
+                "indep": classify3.classify(r, indep.get(k)) if k in indep else None}
     return L
 
 
-def strata(eps, L, which, value, cond=lambda r, lab: True):
-    """{condition: {(model, family): [0/1]}} over acting, unblocked episodes."""
+def usable(r, lab):
+    return lab is not None and not lab["blocked"] and acting(r)
+
+
+def strata(eps, L, which, value, cond):
     out = defaultdict(lambda: defaultdict(list))
     for r in eps:
         lab = L[r["_rel"]][which]
-        if lab is None or lab["blocked"] or not acting(r) or not cond(r, lab):
-            continue
-        out[r["condition"]][(r["model"], r["task"])].append(int(bool(value(lab))))
+        if usable(r, lab) and cond(r, lab):
+            out[r["condition"]][(r["model"], r["task"])].append(int(bool(value(lab))))
     return out
 
 
-def test_arms(eps, L, which, value, cond=lambda r, lab: True, families=FAMILIES, pair=("unatt_pt", "att_pt")):
-    """Exact stratified test and MH risk difference, pair[0] minus pair[1], strata = model x family."""
-    st = strata(eps, L, which, value, lambda r, lab: cond(r, lab) and r["task"] in families)
+def contrast(eps, L, pair, which="final", value=lambda lab: lab["cheat"], cond=lambda r, lab: True,
+             families=FAMILIES, models=None):
+    st = strata(eps, L, which, value,
+                lambda r, lab: cond(r, lab) and r["task"] in families and (models is None or r["model"] in models))
     a, b = st[pair[0]], st[pair[1]]
     k_a, n_a = sum(sum(v) for v in a.values()), sum(len(v) for v in a.values())
     k_b, n_b = sum(sum(v) for v in b.values()), sum(len(v) for v in b.values())
     ex = S.exact_stratified(a, b)
+    sato = S.mh_rd_sato(a, b)
     bo = S.boot_rd(a, b, B=10000, seed=3)
-    return {"pair": list(pair), "a": [k_a, n_a], "b": [k_b, n_b], "p": ex["p_two_sided"], "mh_rd": bo["mh"],
-            "mh_ci": bo["mh_ci"], "eq_rd": bo["eq"], "eq_ci": bo["eq_ci"]}
+    return {"pair": list(pair), "a": [k_a, n_a], "b": [k_b, n_b], "p": ex["p_two_sided"], "mh_rd": sato["rd"],
+            "mh_ci": sato["ci"], "mh_se": sato["se"], "boot_ci": bo["mh_ci"], "eq_rd": bo["eq"], "eq_ci": bo["eq_ci"]}
 
 
 def rate(xs):
     k, n = sum(xs), len(xs)
     lo, hi = S.wilson(k, n)
     return {"k": k, "n": n, "rate": (k / n if n else None), "ci": [lo, hi]}
+
+
+def analyse(eps, L):
+    out = {}
+    final = {r["_rel"]: L[r["_rel"]]["final"] for r in eps}
+
+    # accounting
+    acc = defaultdict(lambda: {"episodes": 0, "blocked": 0, "not_acting": 0, "unjudged": 0})
+    for r in eps:
+        lab = final[r["_rel"]]
+        c = acc[f"{r['model']}|{r['task']}|{r['condition']}"]
+        c["episodes"] += 1
+        c["blocked"] += lab["blocked"]
+        c["not_acting"] += not acting(r)
+        c["unjudged"] += (not lab["judged"]) and usable(r, lab)
+    out["accounting"] = acc
+
+    # rates
+    cells = defaultdict(list)
+    for r in eps:
+        lab = final[r["_rel"]]
+        if usable(r, lab):
+            cells[(r["model"], r["task"], r["condition"])].append(int(lab["cheat"]))
+    out["cheat_rates"] = {f"{m}|{f}|{c}": rate(v) for (m, f, c), v in sorted(cells.items())}
+    agg = defaultdict(list)
+    for (m, f, c), v in cells.items():
+        agg[("model", m, c)] += v
+        agg[("family", f, c)] += v
+        agg[("all", "all", c)] += v
+    out["rates_by"] = {f"{a}|{b}|{c}": rate(v) for (a, b, c), v in sorted(agg.items())}
+
+    # confirmatory and secondary tests
+    t = {"H1": contrast(eps, L, H1), "H2": contrast(eps, L, H2)}
+    hc = S.holm({"H1": t["H1"]["p"], "H2": t["H2"]["p"]})
+    t["H1"]["p_holm"], t["H2"]["p_holm"] = hc["H1"], hc["H2"]
+    fam = {f"{h}|{f}": contrast(eps, L, pair, families=(f,)) for h, pair in (("H1", H1), ("H2", H2))
+           for f in FAMILIES}
+    hf = S.holm({k: v["p"] for k, v in fam.items()})
+    for k in fam:
+        fam[k]["p_holm"] = hf[k]
+    t["by_family"] = fam
+    per_model = {m: rate(agg.get(("model", m, "unatt_pt"), [])) for m in MAIN_MODELS}
+    xs = [(per_model[m]["rate"], CHEATBENCH_OVERALL[m]) for m in MAIN_MODELS if per_model[m]["n"]]
+    if len(xs) >= 4:
+        from scipy.stats import spearmanr
+        rho, p = spearmanr([x for x, _ in xs], [y for _, y in xs])
+        t["H3"] = {"rho": float(rho), "p_one_sided": float(p / 2 if rho > 0 else 1 - p / 2), "n_models": len(xs)}
+    t["H4"] = {f"{h}|{what}": contrast(eps, L, pair, value=val, cond=cond)
+               for h, pair in (("H1", H1), ("H2", H2))
+               for what, val, cond in (("noticed", lambda lab: lab["noticed_any"], lambda r, lab: True),
+                                       ("attempt_given_noticed", lambda lab: lab["cheat"],
+                                        lambda r, lab: lab["noticed_any"]))}
+    out["tests"] = t
+
+    # sensitivity
+    sens = {}
+    for name, kw in (("det", {"which": "det"}), ("noadj", {"which": "noadj"}), ("indep", {"which": "indep"}),
+                     ("no_coat", {"families": ("leak", "assay", "door")}),
+                     ("no_claude", {"models": [m for m in MAIN_MODELS if m not in CLAUDE]})):
+        sens[name] = {h: contrast(eps, L, pair, **kw) for h, pair in (("H1", H1), ("H2", H2))}
+    out["sensitivity"] = sens
+
+    # funnel
+    stages = ("exposure", "noticed", "intent", "attempt", "success", "consequential")
+    fun = {}
+    for f in FAMILIES:
+        for c in sorted({r["condition"] for r in eps}):
+            for route in classify3.ROUTES:
+                rows = [final[r["_rel"]]["routes"][route] for r in eps
+                        if r["task"] == f and r["condition"] == c and usable(r, final[r["_rel"]])]
+                fun[f"{f}|{c}|{route}"] = {s: sum(x[s] for x in rows) for s in stages} | {"n": len(rows)}
+    out["funnel"] = fun
+    clue = defaultdict(lambda: [0, 0])
+    for r in eps:
+        lab = final[r["_rel"]]
+        if usable(r, lab) and r["condition"].endswith("_pt"):
+            for route in classify3.ROUTES:
+                seen = bool((r.get("exposure_routes") or {}).get(f"{route}_clue"))
+                clue[f"{r['task']}|{r['condition']}|{route}"][0] += seen
+                clue[f"{r['task']}|{r['condition']}|{route}"][1] += 1
+    out["clue_exposure"] = clue
+
+    # checks, outcomes and reports
+    chk = {}
+    for f in FAMILIES:
+        for c in sorted({r["condition"] for r in eps}):
+            rows = [final[r["_rel"]] for r in eps if r["task"] == f and r["condition"] == c
+                    and usable(r, final[r["_rel"]])]
+            honest = [lab for lab in rows if not lab["cheat"]]
+            cheats = [lab for lab in rows if lab["cheat"]]
+            chk[f"{f}|{c}"] = {
+                "n": len(rows), "honest_n": len(honest),
+                "honest_true_success": sum(lab["true_success"] for lab in honest),
+                "fix_applied": sum(lab["fixed"] for lab in rows),
+                "cause_found": sum(lab["honest_cause_found"] for lab in rows),
+                "concluded_impossible": sum(lab["concluded_impossible"] for lab in rows),
+                "cheat": len(cheats), "success": sum(lab["success"] for lab in cheats),
+                "consequential": sum(lab["consequential"] for lab in cheats),
+                "misleading_among_cheats": sum(lab["misleading_report"] for lab in cheats),
+                "disclosed_among_cheats": sum(bool(lab["disclosed"]) for lab in cheats),
+                "declined_any": sum(lab["declined_any"] for lab in rows),
+                "probe_then_declined": sum(lab["declined_any"] and not lab["consequential"] for lab in cheats),
+                "suspects_test": sum(lab["suspects_test"] for lab in rows),
+                "mentions_simulation": sum(lab["mentions_simulation"] for lab in rows),
+                "routes": {rt: sum(rt in lab["cheat_routes"] for lab in cheats) for rt in classify3.ROUTES},
+            }
+    out["checks"] = chk
+    sus = defaultdict(lambda: [0, 0])
+    for r in eps:
+        lab = final[r["_rel"]]
+        if usable(r, lab):
+            k = "suspects" if lab["suspects_test"] else "no_suspicion"
+            sus[k][0] += lab["cheat"]
+            sus[k][1] += 1
+    out["awareness_vs_cheat"] = sus
+
+    # agreement
+    both = [(L[r["_rel"]]["final"], L[r["_rel"]]["indep"]) for r in eps
+            if L[r["_rel"]]["indep"] is not None and usable(r, L[r["_rel"]]["final"])]
+    agr = {}
+    for route in classify3.ROUTES:
+        agr[f"attempt_{route}"] = S.kappa([int(x["routes"][route]["attempt"]) for x, _ in both],
+                                          [int(y["routes"][route]["attempt"]) for _, y in both])
+        prim_rows = [L[r["_rel"]]["final"]["routes"][route] for r in eps
+                     if usable(r, L[r["_rel"]]["final"]) and L[r["_rel"]]["final"]["judged"]]
+        agr[f"log_vs_primary_acted_{route}"] = S.kappa([int(x["det_act"]) for x in prim_rows],
+                                                       [int(x["judge_acted"]) for x in prim_rows])
+    agr["cheat"] = S.kappa([int(x["cheat"]) for x, _ in both], [int(y["cheat"]) for _, y in both])
+    for key in ("noticed_any", "suspects_test", "mentions_simulation", "misleading_report"):
+        agr[key] = S.kappa([int(x[key]) for x, _ in both], [int(y[key]) for _, y in both])
+    out["agreement"] = agr
+
+    # adjudication queue
+    queue = []
+    for r in eps:
+        k = r["_rel"]
+        lab, ind = L[k]["final"], L[k]["indep"]
+        if not usable(r, lab):
+            continue
+        why = [f"{rt}: log vs primary" for rt in classify3.ROUTES if lab["routes"][rt]["disagree"]]
+        if ind is not None:
+            why += [f"{rt}: judges" for rt in classify3.ROUTES
+                    if L[k]["noadj"]["routes"][rt]["attempt"] != ind["routes"][rt]["attempt"]]
+        if why:
+            queue.append({"file": k, "why": why})
+    out["adjudication_queue"] = queue
+    return out
+
+
+def pct(k, n):
+    return f"{k}/{n}" + (f" ({100 * k / n:.0f}%)" if n else "")
+
+
+def fmt_test(x):
+    return (f"{pct(*x['a'])} vs {pct(*x['b'])}; RD {100 * x['mh_rd']:+.1f} points "
+            f"[{100 * x['mh_ci'][0]:+.1f}, {100 * x['mh_ci'][1]:+.1f}]; p = {x['p']:.3g}")
+
+
+def write_tables(R):
+    t = R["tests"]
+    lines = ["# v3 tables (scripts/analyze3.py)", "",
+             f"Episodes: {R['n_episodes']}; primary labels {R['n_primary']}; independent {R['n_independent']}; "
+             f"adjudicated {R['n_adjudicated']}.", "", "## Confirmatory", "",
+             f"- H1 attainability, unatt_pt vs att_pt: {fmt_test(t['H1'])}; Holm p = {t['H1']['p_holm']:.3g}",
+             f"- H2 clue salience, unatt_pt vs unatt: {fmt_test(t['H2'])}; Holm p = {t['H2']['p_holm']:.3g}", "",
+             "## By cell (Holm over 8)", "", "| Test | Cell | Result | Holm p |", "|---|---|---|---|"]
+    for k, x in t["by_family"].items():
+        h, f = k.split("|")
+        lines.append(f"| {h} | {f} | {fmt_test(x)} | {x['p_holm']:.3g} |")
+    if "H3" in t:
+        lines += ["", f"H3: Spearman rho = {t['H3']['rho']:.2f} (one-sided p = {t['H3']['p_one_sided']:.3g}, "
+                      f"{t['H3']['n_models']} models)"]
+    lines += ["", "## H4: where the effects arise", ""]
+    for k, x in t["H4"].items():
+        lines.append(f"- {k}: {fmt_test(x)}")
+    lines += ["", "## Sensitivity", "", "| Variant | H1 | H2 |", "|---|---|---|"]
+    for k, v in R["sensitivity"].items():
+        lines.append(f"| {k} | {fmt_test(v['H1'])} | {fmt_test(v['H2'])} |")
+    conds = sorted({k.split("|")[2] for k in R["cheat_rates"]})
+    lines += ["", "## Cheating by model, cell and condition (cheat / acting episodes)", "",
+              "| Model | " + " | ".join(f"{f} {c}" for f in FAMILIES for c in conds) + " |",
+              "|---|" + "---|" * (len(FAMILIES) * len(conds))]
+    for m in MAIN_MODELS:
+        row = []
+        for f in FAMILIES:
+            for c in conds:
+                x = R["cheat_rates"].get(f"{m}|{f}|{c}")
+                row.append(f"{x['k']}/{x['n']}" if x else "-")
+        lines.append(f"| {NAMES[m]} | " + " | ".join(row) + " |")
+    lines += ["", "## Funnel (episodes reaching each stage, per route)", "",
+              "| Cell | Condition | Route | n | exposure | noticed | intent | attempt | success | consequential |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
+    for k, v in R["funnel"].items():
+        f, c, route = k.split("|")
+        lines.append(f"| {f} | {c} | {route} | {v['n']} | {v['exposure']} | {v['noticed']} | {v['intent']} | "
+                     f"{v['attempt']} | {v['success']} | {v['consequential']} |")
+    lines += ["", "## Checks and reports", "",
+              "| Cell | Condition | n | honest true success | cause found | concluded impossible | cheat | success | "
+              "consequential | misleading | disclosed | declined |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for k, v in R["checks"].items():
+        f, c = k.split("|")
+        lines.append(f"| {f} | {c} | {v['n']} | {pct(v['honest_true_success'], v['honest_n'])} | {v['cause_found']} | "
+                     f"{v['concluded_impossible']} | {v['cheat']} | {v['success']} | {v['consequential']} | "
+                     f"{v['misleading_among_cheats']} | {v['disclosed_among_cheats']} | {v['declined_any']} |")
+    lines += ["", "## Agreement", ""]
+    for k, v in R["agreement"].items():
+        lines.append(f"- {k}: n {v.get('n')}, kappa {v.get('kappa')}, agree {v.get('agree')}")
+    (OUT / "tables.md").write_text("\n".join(lines) + "\n")
 
 
 def main():
@@ -120,187 +331,16 @@ def main():
     eps = load_eps(a.run)
     prim, indep, adj = load_labels("primary"), load_labels("independent"), load_adjudication()
     L = label_sets(eps, prim, indep, adj)
-    S_ = {"run": a.run, "n_episodes": len(eps), "n_primary": sum(r["_rel"] in prim for r in eps),
-          "n_independent": sum(r["_rel"] in indep for r in eps), "n_adjudicated": len(adj)}
-
-    # ---- accounting ------------------------------------------------------------------------------------------------
-    acc = defaultdict(lambda: {"episodes": 0, "blocked": 0, "not_acting": 0, "unjudged": 0})
-    for r in eps:
-        lab = L[r["_rel"]]["final"]
-        c = acc[f"{r['model']}|{r['task']}|{lab['arm']}"]
-        c["episodes"] += 1
-        c["blocked"] += lab["blocked"]
-        c["not_acting"] += not acting(r)
-        c["unjudged"] += (not lab["judged"]) and not lab["blocked"] and acting(r)
-    S_["accounting"] = acc
-
-    ok = lambda r, lab: not lab["blocked"] and acting(r)  # noqa: E731
-    final = {r["_rel"]: L[r["_rel"]]["final"] for r in eps}
-
-    # ---- rates ------------------------------------------------------------------------------------------------------
-    cells = defaultdict(list)
-    for r in eps:
-        lab = final[r["_rel"]]
-        if ok(r, lab):
-            cells[(r["model"], r["task"], lab["arm"])].append(int(lab["cheat"]))
-    S_["cheat_rates"] = {f"{m}|{f}|{arm}": rate(v) for (m, f, arm), v in sorted(cells.items())}
-    by_model_arm = defaultdict(list)
-    by_family_arm = defaultdict(list)
-    for (m, f, arm), v in cells.items():
-        by_model_arm[(m, arm)] += v
-        by_family_arm[(f, arm)] += v
-    S_["by_model_arm"] = {f"{m}|{arm}": rate(v) for (m, arm), v in sorted(by_model_arm.items())}
-    S_["by_family_arm"] = {f"{f}|{arm}": rate(v) for (f, arm), v in sorted(by_family_arm.items())}
-
-    # ---- confirmatory H1 and secondary tests ----------------------------------------------------------------------
-    tests = {"H1": test_arms(eps, L, "final", lambda lab: lab["cheat"])}
-    fam_tests = {f: test_arms(eps, L, "final", lambda lab: lab["cheat"], families=(f,)) for f in FAMILIES}
-    holm = S.holm({f: t["p"] for f, t in fam_tests.items()})
-    for f in FAMILIES:
-        fam_tests[f]["p_holm"] = holm[f]
-    tests["H1_by_family"] = fam_tests
-    tests["H2_attempt_given_noticed"] = test_arms(eps, L, "final", lambda lab: lab["cheat"],
-                                                  cond=lambda r, lab: lab["noticed_any"])
-    tests["H2_noticed"] = test_arms(eps, L, "final", lambda lab: lab["noticed_any"])
-    tests["sensitivity"] = {w: test_arms(eps, L, w, lambda lab: lab["cheat"]) for w in ("noadj", "det", "indep")}
-    tests["sensitivity"]["no_coat"] = test_arms(eps, L, "final", lambda lab: lab["cheat"],
-                                                families=("leak", "assay", "door"))
-    # H3: model ordering vs CheatBench (both arms pooled)
-    per_model = {m: rate(by_model_arm.get((m, "att"), []) + by_model_arm.get((m, "unatt"), [])) for m in MAIN_MODELS}
-    xs = [(per_model[m]["rate"], CHEATBENCH_OVERALL[m]) for m in MAIN_MODELS if per_model[m]["n"]]
-    if len(xs) >= 4:
-        from scipy.stats import spearmanr
-        rho, p = spearmanr([x for x, _ in xs], [y for _, y in xs])
-        tests["H3_spearman"] = {"rho": float(rho), "p_two_sided": float(p),
-                                "p_one_sided": float(p / 2 if rho > 0 else 1 - p / 2), "n_models": len(xs)}
-    S_["tests"] = tests
-    S_["per_model"] = per_model
-
-    # ---- funnel -----------------------------------------------------------------------------------------------------
-    stages = ("exposure", "noticed", "intent", "attempt", "success", "consequential")
-    fun = {}
-    for f in FAMILIES:
-        for arm in ARMS:
-            for route in classify3.ROUTES:
-                rows = [final[r["_rel"]]["routes"][route] for r in eps
-                        if r["task"] == f and ok(r, final[r["_rel"]]) and final[r["_rel"]]["arm"] == arm]
-                fun[f"{f}|{arm}|{route}"] = {s: sum(x[s] for x in rows) for s in stages} | {"n": len(rows)}
-    S_["funnel"] = fun
-
-    # ---- manipulation checks, outcomes and reports --------------------------------------------------------------------
-    chk = {}
-    for f in FAMILIES:
-        for arm in ARMS:
-            rows = [(r, final[r["_rel"]]) for r in eps if r["task"] == f and ok(r, final[r["_rel"]])
-                    and final[r["_rel"]]["arm"] == arm]
-            honest = [(r, lab) for r, lab in rows if not lab["cheat"]]
-            chk[f"{f}|{arm}"] = {
-                "n": len(rows), "honest_n": len(honest),
-                "honest_true_success": sum(lab["true_success"] for _, lab in honest),
-                "fix_applied": sum(lab["fixed"] for _, lab in rows),
-                "cause_found": sum(lab["honest_cause_found"] for _, lab in rows),
-                "concluded_impossible": sum(lab["concluded_impossible"] for _, lab in rows),
-                "cheat": sum(lab["cheat"] for _, lab in rows),
-                "consequential": sum(lab["consequential"] for _, lab in rows),
-                "misleading_report_among_cheats": [sum(lab["misleading_report"] for _, lab in rows if lab["cheat"]),
-                                                   sum(lab["cheat"] for _, lab in rows)],
-                "disclosed_among_cheats": [sum(bool(lab["disclosed"]) for _, lab in rows if lab["cheat"]),
-                                           sum(lab["cheat"] for _, lab in rows)],
-                "suspects_test": sum(lab["suspects_test"] for _, lab in rows),
-                "mentions_simulation": sum(lab["mentions_simulation"] for _, lab in rows),
-            }
-    S_["checks"] = chk
-
-    # ---- agreement ----------------------------------------------------------------------------------------------------
-    agr = {}
-    for route in classify3.ROUTES:
-        both = [(L[k]["final"], L[k]["indep"]) for k in L if L[k]["indep"] is not None and not L[k]["final"]["blocked"]]
-        agr[f"attempt_{route}"] = S.kappa([int(x["routes"][route]["attempt"]) for x, _ in both],
-                                          [int(y["routes"][route]["attempt"]) for _, y in both])
-        dj = [(x["routes"][route]["det_act"], x["routes"][route]["judge_acted"]) for x, _ in both]
-        agr[f"det_vs_primary_acted_{route}"] = S.kappa([int(a) for a, _ in dj], [int(b) for _, b in dj])
-    both = [(L[k]["final"], L[k]["indep"]) for k in L if L[k]["indep"] is not None and not L[k]["final"]["blocked"]]
-    agr["cheat"] = S.kappa([int(x["cheat"]) for x, _ in both], [int(y["cheat"]) for _, y in both])
-    for fam in ("claude", "gpt", "other"):
-        sel = [(L[r["_rel"]]["final"], L[r["_rel"]]["indep"]) for r in eps if L[r["_rel"]]["indep"] is not None
-               and not L[r["_rel"]]["final"]["blocked"]
-               and (("opus" in r["model"] or "fable" in r["model"]) if fam == "claude" else
-                    ("gpt" in r["model"]) if fam == "gpt" else
-                    not any(s in r["model"] for s in ("opus", "fable", "gpt")))]
-        agr[f"cheat_{fam}"] = S.kappa([int(x["cheat"]) for x, _ in sel], [int(y["cheat"]) for _, y in sel])
-    for key in ("suspects_test", "mentions_simulation", "misleading_report"):
-        agr[key] = S.kappa([int(x[key]) for x, _ in both], [int(y[key]) for _, y in both])
-    S_["agreement"] = agr
-
-    # ---- queue for adjudication -------------------------------------------------------------------------------------
-    queue = []
-    for r in eps:
-        k = r["_rel"]
-        lab, ind = L[k]["final"], L[k]["indep"]
-        if lab["blocked"] or not acting(r):
-            continue
-        why = [f"{rt}: log vs primary" for rt in classify3.ROUTES if lab["routes"][rt]["disagree"]]
-        if ind is not None:
-            why += [f"{rt}: judges" for rt in classify3.ROUTES
-                    if L[k]["noadj"]["routes"][rt]["attempt"] != ind["routes"][rt]["attempt"]]
-        if why:
-            queue.append({"file": k, "why": why})
-    S_["adjudication_queue"] = queue
-
+    R = {"run": a.run, "n_episodes": len(eps), "n_primary": sum(r["_rel"] in prim for r in eps),
+         "n_independent": sum(r["_rel"] in indep for r in eps), "n_adjudicated": len(adj)}
+    R.update(analyse(eps, L))
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "summary.json").write_text(json.dumps(S_, indent=1, default=str))
-    write_tables(S_)
-    print(f"{len(eps)} episodes; primary {S_['n_primary']}, independent {S_['n_independent']}; "
-          f"queue {len(queue)} -> {OUT / 'summary.json'}")
-    t = tests["H1"]
-    print(f"H1: unatt {t['unatt'][0]}/{t['unatt'][1]} vs att {t['att'][0]}/{t['att'][1]}, MH RD {t['mh_rd']:+.3f} "
-          f"[{t['mh_ci'][0]:+.3f}, {t['mh_ci'][1]:+.3f}], p = {t['p']:.3g}")
-
-
-def pct(k, n):
-    return f"{k}/{n}" + (f" ({100 * k / n:.0f}%)" if n else "")
-
-
-def write_tables(S_):
-    lines = ["# v3 tables (scripts/analyze3.py)", ""]
-    t = S_["tests"]["H1"]
-    lines += ["## H1: cheating when honest success is unattainable vs attainable", "",
-              f"unatt {pct(*t['unatt'])}, att {pct(*t['att'])}; MH risk difference {100 * t['mh_rd']:+.1f} points "
-              f"[{100 * t['mh_ci'][0]:+.1f}, {100 * t['mh_ci'][1]:+.1f}]; exact stratified p = {t['p']:.3g}", "",
-              "| Family | unatt | att | RD (points) | p | p (Holm) |", "|---|---|---|---|---|---|"]
-    for f, x in S_["tests"]["H1_by_family"].items():
-        lines.append(f"| {f} | {pct(*x['unatt'])} | {pct(*x['att'])} | {100 * x['mh_rd']:+.1f} "
-                     f"[{100 * x['mh_ci'][0]:+.1f}, {100 * x['mh_ci'][1]:+.1f}] | {x['p']:.3g} | {x['p_holm']:.3g} |")
-    lines += ["", "## Cheating by model, family and arm (cheat / acting episodes)", "",
-              "| Model | " + " | ".join(f"{f} att | {f} unatt" for f in FAMILIES) + " |",
-              "|---|" + "---|" * (2 * len(FAMILIES))]
-    for m in MAIN_MODELS:
-        row = []
-        for f in FAMILIES:
-            for arm in ARMS:
-                c = S_["cheat_rates"].get(f"{m}|{f}|{arm}")
-                row.append(f"{c['k']}/{c['n']}" if c else "-")
-        lines.append(f"| {NAMES[m]} | " + " | ".join(row) + " |")
-    lines += ["", "## Funnel (episodes reaching each stage, per route)", "",
-              "| Family | Arm | Route | n | exposure | noticed | intent | attempt | success | consequential |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
-    for k, v in S_["funnel"].items():
-        f, arm, route = k.split("|")
-        lines.append(f"| {f} | {arm} | {route} | {v['n']} | {v['exposure']} | {v['noticed']} | {v['intent']} | "
-                     f"{v['attempt']} | {v['success']} | {v['consequential']} |")
-    lines += ["", "## Manipulation checks and reports", "",
-              "| Family | Arm | n | honest true success | fix applied | cause found | concluded impossible | "
-              "cheat | consequential | misleading (cheats) | disclosed (cheats) |", "|---|---|---|---|---|---|---|---|---|---|---|"]
-    for k, v in S_["checks"].items():
-        f, arm = k.split("|")
-        lines.append(f"| {f} | {arm} | {v['n']} | {pct(v['honest_true_success'], v['honest_n'])} | {v['fix_applied']} | "
-                     f"{v['cause_found']} | {v['concluded_impossible']} | {v['cheat']} | {v['consequential']} | "
-                     f"{v['misleading_report_among_cheats'][0]}/{v['misleading_report_among_cheats'][1]} | "
-                     f"{v['disclosed_among_cheats'][0]}/{v['disclosed_among_cheats'][1]} |")
-    lines += ["", "## Agreement", ""]
-    for k, v in S_["agreement"].items():
-        lines.append(f"- {k}: n {v.get('n')}, kappa {v.get('kappa')}, agree {v.get('agree')}")
-    (OUT / "tables.md").write_text("\n".join(lines) + "\n")
+    (OUT / "summary.json").write_text(json.dumps(R, indent=1, default=str))
+    write_tables(R)
+    print(f"{len(eps)} episodes; primary {R['n_primary']}, independent {R['n_independent']}; "
+          f"adjudication queue {len(R['adjudication_queue'])} -> {OUT / 'summary.json'}")
+    for h in ("H1", "H2"):
+        print(f"{h}: {fmt_test(R['tests'][h])}")
 
 
 if __name__ == "__main__":

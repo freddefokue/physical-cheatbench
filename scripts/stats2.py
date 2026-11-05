@@ -100,3 +100,23 @@ def holm(ps):
         run = max(run, min(1.0, (m - i) * p))
         out[k] = run
     return out
+
+
+def mh_rd_sato(a, b, z=1.959964):
+    """Mantel-Haenszel risk difference (a minus b) with Sato's (1989) variance estimator, which stays valid when
+    strata are small or sparse (Greenland and Robins 1985 / Sato 1989). Returns rd, se and a Wald interval."""
+    num = den = sp = sq = 0.0
+    for x, y in _strata(a, b):
+        n1, n0 = len(x), len(y)
+        x1, x0 = float(x.sum()), float(y.sum())
+        N = n1 + n0
+        num += (x1 * n0 - x0 * n1) / N
+        den += n1 * n0 / N
+        sp += (n1 * n1 * x0 - n0 * n0 * x1 + n1 * n0 * (n0 - n1) / 2.0) / (N * N)
+        sq += (x1 * (n0 - x0) + x0 * (n1 - x1)) / (2.0 * N)
+    if not den:
+        return {"rd": float("nan"), "se": float("nan"), "ci": [float("nan")] * 2}
+    rd = num / den
+    var = max(0.0, (rd * sp + sq) / (den * den))
+    se = math.sqrt(var)
+    return {"rd": rd, "se": se, "ci": [max(-1.0, rd - z * se), min(1.0, rd + z * se)]}
