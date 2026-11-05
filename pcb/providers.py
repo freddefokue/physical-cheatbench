@@ -50,6 +50,36 @@ class Turn:
     retries: int = 0
 
 
+MAX_TOKENS = 32000
+
+
+def upper_bound(cfg, payload, n_images=0, max_tokens=MAX_TOKENS):
+    """Worst-case USD cost of one call: every input token billed at the dearest input rate (cache write), images at
+    1,600 tokens each, the whole output allowance used, plus 10%. Used to reserve budget before the call."""
+    chars = len(json.dumps(payload, default=str))
+    p = cfg["prices"]
+    in_tok = chars / 3.0 + n_images * 1600
+    return 1.1 * (in_tok * max(p[0], p[1]) + max_tokens * p[3]) / 1e6 + 0.002
+
+
+def _strip_images(msgs):
+    """Copy of an OpenAI-style message list with image data replaced by a marker (for size estimates)."""
+    out, n = [], 0
+    for m in msgs:
+        c = m.get("content")
+        if isinstance(c, list):
+            cc = []
+            for part in c:
+                if isinstance(part, dict) and part.get("type") in ("image_url", "input_image", "image"):
+                    n += 1
+                    cc.append({"type": "image"})
+                else:
+                    cc.append(part)
+            m = dict(m, content=cc)
+        out.append(m)
+    return out, n
+
+
 def parse_args(raw):
     if isinstance(raw, dict):
         return raw, ""
@@ -81,9 +111,13 @@ class AnthropicConv:
         self.tools = [{"name": t["name"], "description": t["description"], "input_schema": t["schema"]}
                       for t in tools_for(cfg)]
 
+    def next_upper_bound(self):
+        return upper_bound(self.cfg, [self.system, self.msgs, self.tools])
+
     def step(self, allow_tools=True):
-        ledger.check(self.provider)
-        kw = dict(model=self.cfg["model"], max_tokens=32000, system=self.system, messages=self.msgs,
+        ub = self.next_upper_bound()
+        rid = ledger.reserve(self.provider, ub, self.tag)
+        kw = dict(model=self.cfg["model"], max_tokens=MAX_TOKENS, system=self.system, messages=self.msgs,
                   tools=self.tools, tool_choice={"type": "auto" if allow_tools else "none"},
                   thinking={"type": "adaptive", "display": "summarized"},
                   output_config={"effort": self.cfg["effort"]}, cache_control={"type": "ephemeral"})
@@ -111,7 +145,7 @@ class AnthropicConv:
         p = self.cfg["prices"]
         cost = (usage["input"] * p[0] + usage["cache_write"] * p[1] + usage["cache_read"] * p[2]
                 + usage["output"] * p[3]) / 1e6
-        ledger.record(self.provider, self.cfg["model"], self.tag, usage, cost)
+        ledger.settle(rid, self.provider, self.cfg["model"], self.tag, usage, cost)
         turn = Turn(usage=usage, cost=cost, latency=time.time() - t0, retries=retries)
         for b in resp.content:
             if b.type == "text":
@@ -163,8 +197,12 @@ class OpenAIConv:
         self.tools = [{"type": "function", "name": t["name"], "description": t["description"],
                        "parameters": t["schema"]} for t in tools_for(cfg)]
 
+    def next_upper_bound(self):
+        return upper_bound(self.cfg, [self.system, self.pending, self.tools]) + 0.5   # history is server-side
+
     def step(self, allow_tools=True):
-        ledger.check(self.provider)
+        ub = self.next_upper_bound()
+        rid = ledger.reserve(self.provider, ub, self.tag)
         kw = dict(model=self.cfg["model"], instructions=self.system, input=self.pending, tools=self.tools,
                   tool_choice="auto" if allow_tools else "none",
                   reasoning={"effort": self.cfg["effort"], "summary": "detailed"}, store=True, max_output_tokens=32000)
@@ -186,7 +224,7 @@ class OpenAIConv:
         usage = {"input": u.input_tokens - cached, "cache_read": cached, "output": u.output_tokens, "reasoning": reas}
         p = self.cfg["prices"]
         cost = (usage["input"] * p[0] + cached * p[2] + usage["output"] * p[3]) / 1e6
-        ledger.record(self.provider, self.cfg["model"], self.tag, usage, cost)
+        ledger.settle(rid, self.provider, self.cfg["model"], self.tag, usage, cost)
         self.prev, self.pending = r.id, []
         turn = Turn(usage=usage, cost=cost, latency=time.time() - t0, retries=retries)
         refused = False
@@ -260,6 +298,10 @@ class OpenRouterConv:
             cost = (usage["input"] * p[0] + cached * p[2] + usage["output"] * p[3]) / 1e6
         return usage, float(cost)
 
+    def next_upper_bound(self):
+        body, n_img = _strip_images(self.msgs)
+        return upper_bound(self.cfg, [body, self.tools], n_img)
+
     def _marked(self):
         """Anthropic models: copy of the history with a prompt-cache breakpoint on the newest message."""
         if not self.cfg.get("anthropic_route"):
@@ -283,16 +325,23 @@ class OpenRouterConv:
         if self.cfg.get("or_only"):
             prov["only"] = list(self.cfg["or_only"])
         kw = dict(model=self.cfg["model"], messages=self._marked(), tools=self.tools,
-                  tool_choice="auto" if allow_tools else "none", max_tokens=32000,
+                  tool_choice="auto" if allow_tools else "none", max_tokens=MAX_TOKENS,
                   extra_body={"reasoning": {"effort": self.cfg["effort"]}, "usage": {"include": True},
                               "provider": prov})
         t0, retries, total_cost, last_err = time.time(), 0, 0.0, ""
         while True:
-            ledger.check(self.provider)
+            body, n_img = _strip_images(kw["messages"])
+            ub = upper_bound(self.cfg, [body, self.tools], n_img)
+            rid = ledger.reserve(self.provider, ub, self.tag)
             try:
                 r = self.client.chat.completions.create(**kw)
             except (self.openai.APIConnectionError, self.openai.RateLimitError, self.openai.InternalServerError,
                     self.openai.APIStatusError) as e:
+                if isinstance(e, self.openai.APITimeoutError):
+                    ledger.settle(rid, self.provider, self.cfg["model"], self.tag, {"timeout": True}, ub)  # may be billed
+                    total_cost += ub
+                else:
+                    ledger.release(rid, self.provider, self.tag)
                 status = getattr(e, "status_code", None)
                 if status == 400 and not allow_tools and kw.get("tool_choice") == "none":
                     # some providers reject tool_choice "none": final turn with tools allowed, tool calls ignored
@@ -309,7 +358,7 @@ class OpenRouterConv:
                 continue
             usage, cost = self._usage(r)
             total_cost += cost
-            ledger.record(self.provider, self.cfg["model"], self.tag, usage, cost)
+            ledger.settle(rid, self.provider, self.cfg["model"], self.tag, usage, cost)
             ch = r.choices[0] if r.choices else None
             extra = getattr(r, "model_extra", None) or {}
             err = getattr(r, "error", None) or extra.get("error")

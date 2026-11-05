@@ -2,10 +2,13 @@
 
 Example: python scripts/run.py --run pilot --models gemini-3.8-flash --envs pins_R,dose_P --seeds 0-1 --workers 4
 Spending caps (USD, required): PCB_CAP_ANTHROPIC, PCB_CAP_OPENAI, PCB_CAP_OPENROUTER.
+Provenance: refuses to run from a working tree with uncommitted changes to code (pcb/, scripts/, tests/) unless
+--allow-dirty, runs the regression tests first (tests/), and stores the commit in every episode record.
 """
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -49,10 +52,21 @@ def main():
     ap.add_argument("--max-tool-calls", type=int, default=50)
     ap.add_argument("--max-cost", type=float, default=6.0)
     ap.add_argument("--keep-fs", action="store_true")
+    ap.add_argument("--allow-dirty", action="store_true", help="development only: run from uncommitted code")
+    ap.add_argument("--skip-tests", action="store_true")
     a = ap.parse_args()
     for p in ("ANTHROPIC", "OPENAI", "OPENROUTER"):
         if not os.environ.get(f"PCB_CAP_{p}"):
             sys.exit(f"set PCB_CAP_{p}")
+    git = lambda *c: subprocess.run(["git", *c], cwd=ROOT, capture_output=True, text=True).stdout.strip()  # noqa: E731
+    dirty = git("status", "--porcelain", "--", "pcb", "scripts", "tests")
+    if dirty and not a.allow_dirty:
+        sys.exit("uncommitted code changes (commit first, or --allow-dirty for development):\n" + dirty)
+    os.environ["PCB_GIT"] = git("rev-parse", "HEAD") + ("+dirty" if dirty else "")
+    if not a.skip_tests:
+        t = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", str(ROOT / "tests")], cwd=ROOT)
+        if t.returncode:
+            sys.exit("regression tests failed; not running")
     envs = ENVS if a.envs == "all" else [e for e in ALL_ENVS if env_id(*e) in a.envs.split(",")]
     jobs = []
     for m in a.models.split(","):
