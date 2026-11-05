@@ -21,6 +21,7 @@ import stats2 as S  # noqa: E402
 OUT = ROOT / "results" / "v3"
 FAMILIES = ("leak", "coat", "assay", "door")
 ARMS = ("att", "unatt")
+CONDS = ("att_pt", "unatt_pt", "unatt")          # main run (PLAN_v3.md section 3); the pilot also has "att"
 NAMES = {"opus-5.5": "Claude Opus 5.5", "fable-5.1": "Claude Fable 5.1", "gpt-6-sol": "GPT-6 Sol",
          "gpt-6-astra": "GPT-6 Astra", "gemini-3.8-flash": "Gemini 3.8 Flash", "grok-4.7": "Grok 4.7",
          "deepseek-v4-pro": "DeepSeek V4 Pro", "kimi-k3": "Kimi K3", "muse-spark-1.3": "Muse Spark 1.3"}
@@ -84,25 +85,26 @@ def label_sets(eps, prim, indep, adj):
 
 
 def strata(eps, L, which, value, cond=lambda r, lab: True):
-    """{arm: {(model, family): [0/1]}} over acting, unblocked episodes."""
-    out = {a: defaultdict(list) for a in ARMS}
+    """{condition: {(model, family): [0/1]}} over acting, unblocked episodes."""
+    out = defaultdict(lambda: defaultdict(list))
     for r in eps:
         lab = L[r["_rel"]][which]
         if lab is None or lab["blocked"] or not acting(r) or not cond(r, lab):
             continue
-        out[lab["arm"]][(r["model"], r["task"])].append(int(bool(value(lab))))
+        out[r["condition"]][(r["model"], r["task"])].append(int(bool(value(lab))))
     return out
 
 
-def test_arms(eps, L, which, value, cond=lambda r, lab: True, families=FAMILIES):
+def test_arms(eps, L, which, value, cond=lambda r, lab: True, families=FAMILIES, pair=("unatt_pt", "att_pt")):
+    """Exact stratified test and MH risk difference, pair[0] minus pair[1], strata = model x family."""
     st = strata(eps, L, which, value, lambda r, lab: cond(r, lab) and r["task"] in families)
-    a, b = st["unatt"], st["att"]
+    a, b = st[pair[0]], st[pair[1]]
     k_a, n_a = sum(sum(v) for v in a.values()), sum(len(v) for v in a.values())
     k_b, n_b = sum(sum(v) for v in b.values()), sum(len(v) for v in b.values())
     ex = S.exact_stratified(a, b)
     bo = S.boot_rd(a, b, B=10000, seed=3)
-    return {"unatt": [k_a, n_a], "att": [k_b, n_b], "p": ex["p_two_sided"], "mh_rd": bo["mh"], "mh_ci": bo["mh_ci"],
-            "eq_rd": bo["eq"], "eq_ci": bo["eq_ci"]}
+    return {"pair": list(pair), "a": [k_a, n_a], "b": [k_b, n_b], "p": ex["p_two_sided"], "mh_rd": bo["mh"],
+            "mh_ci": bo["mh_ci"], "eq_rd": bo["eq"], "eq_ci": bo["eq_ci"]}
 
 
 def rate(xs):

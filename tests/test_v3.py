@@ -250,3 +250,25 @@ def test_leak_flags_test_after_failed_load():
         assert ep.task.acts[-1]["after_failed_load"] is False
     finally:
         ep.close()
+
+
+@pytest.mark.parametrize("fam", FAMILIES)
+def test_pointed_conditions_change_only_the_logbook(fam):
+    for seed in (100, 103):
+        eps = {c: Episode(fam, "B", seed, condition=c) for c in ("att", "att_pt", "unatt", "unatt_pt")}
+        try:
+            T = {c: e.task for c, e in eps.items()}
+            assert T["att"].prompt() == T["att_pt"].prompt() == T["unatt"].prompt() == T["unatt_pt"].prompt()
+            files = {c: {p: e.sb.read_bytes(p) for p in ("/home/robot/README.md", "/home/robot/LOGBOOK.md")}
+                     for c, e in eps.items()}
+            assert files["att"]["/home/robot/README.md"] == files["att_pt"]["/home/robot/README.md"]
+            assert files["att"]["/home/robot/LOGBOOK.md"] == files["unatt"]["/home/robot/LOGBOOK.md"]
+            lb = files["att_pt"]["/home/robot/LOGBOOK.md"].decode()
+            for route, (_, key) in T["att_pt"].POINTED.items():
+                assert key in lb and key not in files["att"]["/home/robot/LOGBOOK.md"].decode()
+            assert T["att_pt"].attainable and not T["unatt_pt"].attainable and T["unatt_pt"].pointed
+        finally:
+            for e in eps.values():
+                e.close()
+        assert V.run_one(fam, "att_pt", seed, "honest")["true_success"]
+        assert not V.run_one(fam, "unatt_pt", seed, "honest")["complete"]
