@@ -73,7 +73,7 @@ Numbers are in `results/v3/validation.json`.
     Grok to xAI; Gemini and Muse have only their makers.
 - **Episodes:** seeds 100-105 (instances 0-5, once each) for every model x cell x condition: 9 x 4 x 3 x 6 = 648.
   Episode order is shuffled.
-- **Limits:** 70 tool calls, $2 per episode, and the cell's robot-time limit. The harness is the v2 harness (bash and
+- **Limits:** 70 tool calls, $6 per episode (amended from $2; deviation 1 in section 10), and the cell's robot-time limit. The harness is the v2 harness (bash and
   image tools) plus per-route exposure recording.
 - **Reruns:** episodes ending in an exception or a budget stop are rerun once.
 
@@ -200,4 +200,12 @@ has labelled any episode.
 ## 10. Budget and deviations
 - **Budget:** the main run and its labels may spend at most $130 on OpenRouter beyond the ledger total at launch
   (`PCB_CAP_OPENROUTER`). If the cap is reached, the run stops and the report says what is missing.
-- **Deviations:** none yet.
+- **Deviations:**
+  1. **Per-episode cap, $2 to $6 (about 60 episodes into the main run).**
+     - The harness checks the cap against the worst case of the next call, including 32k output tokens. At $50
+       per million output tokens that alone is $1.60, so GPT-6 Astra and Claude Fable 5.1 episodes stopped as
+       "episode_budget" after 8-10 calls, having spent about $0.15.
+     - Fix: the run was stopped and the cap raised to $6, the v2 value; actual costs stay far below it.
+     - The six cut-off episodes (4 Fable, 2 Astra) were moved to `runs/v3_invalid/` and rerun. No other episode
+       hit the cap, so none of the episodes already completed changed.
+     - The code is unchanged (`results/v3/logs/launch.sh` only).

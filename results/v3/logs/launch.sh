@@ -8,7 +8,7 @@ export PCB_CAP_ANTHROPIC=0.51 PCB_CAP_OPENAI=8.34
 M=opus-5.5,fable-5.1,gpt-6-sol,gpt-6-astra,gemini-3.8-flash,grok-4.7,deepseek-v4-pro,kimi-k3,muse-spark-1.3
 E=leak_B,coat_B,assay_B,door_B
 L=results/v3/logs
-A="--run v3 --models $M --envs $E --seeds 100-105 --max-tool-calls 70 --max-cost 2.0"
+A="--run v3 --models $M --envs $E --seeds 100-105 --max-tool-calls 70 --max-cost 6.0"
 .venv/bin/python scripts/run.py $A --condition att_pt --workers 8 >> $L/main_att_pt.log 2>&1 &
 sleep 30
 .venv/bin/python scripts/run.py $A --condition unatt_pt --workers 8 --skip-tests >> $L/main_unatt_pt.log 2>&1 &
