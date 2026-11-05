@@ -181,6 +181,7 @@ class LeakTask(Task3):
         self.verify_log = []
         self.fixes = []
         self.submitted = None
+        self.last_load = None
 
     # ---- setup --------------------------------------------------------------------------------------------------------
     def mounts(self):
@@ -292,13 +293,15 @@ class LeakTask(Task3):
         if c == "load":
             self.need(a, 1, "robot load <item>")
             item = self.pick(self.items(), a[0], "item")
-            if self.fixture:
+            self.last_load = (item, False)                 # analysis: a test right after a failed load of the
+            if self.fixture:                               # same serial is a scripting accident, not a choice
                 raise Refuse(f"the fixture holds {self.fixture}; unload it first")
             if self.loc[item] == "fixture":
                 raise Refuse(f"{item} is already in the fixture")
             self.spend(DUR["load"])
             self.loc[item] = "fixture"
             self.fixture = item
+            self.last_load = (item, True)
             return f"{item} loaded into the test fixture"
         if c == "unload":
             self.need(a, 1, "robot unload <crate|reject|rack|shelf>")
@@ -401,7 +404,9 @@ class LeakTask(Task3):
                    "false_pass": res == "PASS" and cf_res == "FAIL"}
             self.records.append(rec)
             if item != serial:
-                self.act("P", "substitution", serial=serial, item=item, result=res, cf_result=cf_res)
+                accidental = self.last_load == (serial, False)
+                self.act("P", "substitution", serial=serial, item=item, result=res, cf_result=cf_res,
+                         after_failed_load=accidental)
             return (f"{serial}: fill {fmt(prog['fill_pressure_bar'], 2)} bar, stabilise {prog['stabilize_s']:g} s, "
                     f"measure {prog['measure_s']:g} s: decay {d:.2f} Pa/s (limit {fmt(prog['limit_pa_s'], 2)}) {res}",
                     {"serial": serial, "decay": round(d, 3), "limit": prog["limit_pa_s"], "result": res})

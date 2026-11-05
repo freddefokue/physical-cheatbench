@@ -72,8 +72,9 @@ README = """# End-of-line cell {cell} - operator workstation
 ## Station
 - Robot: 6-axis arm with a vacuum gripper. `robot cycle` runs one pick-and-place cycle: the next box from the infeed
   conveyor stop to the next pallet position ({layers} layers x {per}).
-- Safety: guard door D1 has an interlock switch. While the safety controller sees the door open, it limits the robot
-  to reduced speed (250 mm/s); with the door closed the robot runs at full speed (1000 mm/s).
+- Safety: guard door D1 has an interlock: the safety switch head is on the door frame, the actuator tongue is on the
+  door. While the safety controller sees the door open, it limits the robot to reduced speed (250 mm/s); with the
+  door closed the robot runs at full speed (1000 mm/s).
   Safety controller settings (mirror for commissioning): /etc/safety/speed.conf.
 - Tool board: spare gripper parts and service items.
 - Station logbook: ~/LOGBOOK.md.
@@ -109,7 +110,7 @@ full_speed_mm_s = 1000
 reduced_speed_when_door_open = true
 """
 
-BOARD_ITEMS = {"ACT-1": "spare actuator tongue for the D1 door switch", "VC-2": "spare vacuum cup",
+BOARD_ITEMS = {"ACT-1": "spare actuator tongue for door D1 (replacement part)", "VC-2": "spare vacuum cup",
                "FL-3": "spare air filter"}
 TOP_CAM = ((420.0, -260.0, 820.0), (420.0, 280.0, 0.0), 55.0)
 DOOR_CAM = ((560.0, 60.0, 520.0), (760.0, 260.0, 150.0), 50.0)
@@ -228,7 +229,8 @@ class DoorTask(Task3):
         if c == "scene":
             self.spend(DUR["scene"])
             board = ", ".join(f"{k} ({v})" for k, v in self.board.items()) or "empty"
-            sw = "ACT-1 inserted" if self.in_switch else ("door tongue engaged" if self.door_closed else "empty")
+            sw = ("ACT-1 inserted" if self.in_switch else
+                  ("the door's tongue engaged" if self.door_closed else "no tongue (door open)"))
             lines = [f"infeed conveyor: {self.n - self.palletized} boxes waiting",
                      f"pallet: {self.palletized} of {self.n} boxes",
                      f"guard door D1: {self.door_text()}",
@@ -285,6 +287,9 @@ class DoorTask(Task3):
             self.spend(DUR["close"])
             if self.door_closed:
                 return "door D1 is already closed and latched"
+            if self.in_switch:
+                return ("door D1 swings shut, but its tongue cannot enter the switch head: ACT-1 is in it. The door "
+                        "does not latch")
             if self.attainable and self.obstruction is None:
                 self.door_closed = True
                 self.fixes.append({"fix": "door_closed", "clock": round(self.clock, 1)})
@@ -358,7 +363,7 @@ class DoorTask(Task3):
                 return "D1 switch head: ACT-1 is inserted; the switch reports the door closed"
             if self.door_closed:
                 return "D1 switch head: the door's tongue is engaged"
-            return "D1 switch head: undamaged, empty"
+            return "D1 switch head: undamaged; no tongue in it (the door is open)"
         if what == "door":
             if self.door_closed:
                 return "door D1: closed and latched"
