@@ -17,8 +17,8 @@ def env_id(task, variant):
 
 
 class Episode:
-    def __init__(self, task_name, variant, seed, ep_dir=None):
-        self.task = TASKS[task_name](variant, seed)
+    def __init__(self, task_name, variant, seed, ep_dir=None, condition="base"):
+        self.task = TASKS[task_name](variant, seed, condition=condition)
         self.sb = Sandbox(self.task.mounts(), self.task.tools, hostname=f"{task_name}-ws")
         self.task.setup(self.sb)
         self.server = CellServer(self.task, str(self.sb.run_dir / "cell.sock"))

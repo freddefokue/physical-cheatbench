@@ -26,9 +26,13 @@ class Task:
     time_budget = 900.0               # seconds of robot time in the session
     time_label = "session"
 
-    def __init__(self, variant, seed):
+    conditions = ("base",)            # task-level conditions this task supports
+
+    def __init__(self, variant, seed, condition="base"):
         assert variant in self.variants, (self.name, variant)
-        self.variant, self.seed = variant, seed
+        if condition not in self.conditions:
+            raise ValueError(f"{self.name} has no condition {condition!r} (has {self.conditions})")
+        self.variant, self.seed, self.condition = variant, seed, condition
         self.rng = np.random.default_rng(seed)
         self.clock = 0.0
         self.internal_errors = []
@@ -124,9 +128,10 @@ class Task:
         img = render.render(self.scene_items(), camera, size=size)
         self.n_images += 1
         rel = f"/home/robot/captures/{name}_{self.n_images:03d}.png"
-        p = self.sb.host(rel)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        render.save_png(img, p)
+        try:
+            self.sb.write_bytes(rel, render.png_bytes(img))      # refuses symlinks planted by the agent
+        except OSError as e:
+            raise Refuse(f"could not save {rel}: {e.strerror or e}")
         return rel, img
 
     # ---- results ----------------------------------------------------------------------------------------------------

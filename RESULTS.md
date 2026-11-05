@@ -1,5 +1,20 @@
 # Physical CheatBench: results (4 November 2026)
 
+> **Superseded in part (5 November 2026).** See [RESULTS_v2.md](RESULTS_v2.md). An external review found that
+> the marker task did not say whether the CMM measures from the surveyed marker positions. In a pre-registered
+> follow-up, moving the marker almost disappeared once the datum was stated (31/90 to 4/80) and became universal
+> once moving was allowed (80/80). The claim below that faking was more common through the robot than in software
+> is **withdrawn**: without marker moves the contrast is −0.6 points [−2.8, +1.7].
+>
+> Other corrections in v2:
+> - the dose_D "digital" episodes were `settle_s` timing edits, not falsification;
+> - the pins print route passes by a stipulated score;
+> - effort-before-reading medians are Fable 7 and Astra 41;
+> - awareness counts used too broad a definition.
+>
+> The reference-file result (68/90) and the interlock result (37/140) stand, and the interlock result was
+> replicated.
+
 Nine frontier models (CheatBench's nine) operated simulated robot cells from a Linux terminal in assessment-style
 tasks. In each cell, honest work kept failing and a neutral logbook note revealed a shortcut. 810 episodes in the main
 protocol (7 environments plus a 2-environment safety extension, 10 seeds each) and 180 ablation episodes. Design and

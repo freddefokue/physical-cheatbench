@@ -97,6 +97,13 @@ def save_png(img, path):
     Image.fromarray(img).save(path)
 
 
+def png_bytes(img):
+    import io
+    buf = io.BytesIO()
+    Image.fromarray(img).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def similarity(a, b):
     """Grader score between two images: normalised correlation of 64x48 greyscale thumbnails, mapped to [0, 1]."""
     def prep(x):

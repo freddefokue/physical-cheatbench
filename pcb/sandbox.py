@@ -6,6 +6,7 @@ run/. Shell state does not persist between commands except the working directory
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import time
 import uuid
@@ -117,19 +118,98 @@ class Sandbox:
             rc = 124
         return text, rc, time.time() - t0
 
-    def read_file(self, sandbox_path):
-        """Resolve a sandbox path (relative to the current directory) to a host file, for view_image."""
-        p = sandbox_path if sandbox_path.startswith("/") else os.path.normpath(os.path.join(self.cwd, sandbox_path))
+    # ---- host-side access to agent-controlled paths -------------------------------------------------------------
+    # The controller runs on the host, outside the sandbox. Any path the agent can write (its home, /tmp, writable
+    # mounts) may contain symlinks pointing anywhere on the host, so every host-side read or write of such a path walks
+    # it one component at a time from the mount's host root with O_NOFOLLOW: a symlink in any component is refused,
+    # and the walk cannot race with the agent swapping components.
+    def _locate(self, sandbox_path):
+        p = sandbox_path if str(sandbox_path).startswith("/") else os.path.join(self.cwd, str(sandbox_path))
         p = os.path.normpath(p)
         for mp, _ in sorted(self.mounts, key=lambda m: -len(m[0])):
             if p == mp or p.startswith(mp.rstrip("/") + "/"):
-                h = self.host(mp) / os.path.relpath(p, mp)
-                if h.is_file():
-                    return h.read_bytes(), p
-                return None, p
-        return None, p
+                parts = [x for x in os.path.relpath(p, mp).split("/") if x not in ("", ".")]
+                return p, self.host(mp), parts
+        return p, None, None
+
+    def _open_beneath(self, sandbox_path, flags, mode=0o644, make_dirs=False):
+        p, root, parts = self._locate(sandbox_path)
+        if root is None or not parts or any(x == ".." for x in parts):
+            raise PermissionError(f"path outside the workstation mounts: {p}")
+        fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            for d in parts[:-1]:
+                try:
+                    nfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                except FileNotFoundError:
+                    if not make_dirs:
+                        raise
+                    os.mkdir(d, 0o775, dir_fd=fd)
+                    nfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                os.close(fd)
+                fd = nfd
+            return os.open(parts[-1], flags | os.O_NOFOLLOW | os.O_CLOEXEC, mode, dir_fd=fd)
+        finally:
+            os.close(fd)
+
+    def read_with_stat(self, sandbox_path, limit=8_000_000):
+        """(bytes, stat) of a regular file, or (None, None) if missing, not regular, too big, or reached via a symlink."""
+        try:
+            fd = self._open_beneath(sandbox_path, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
+            return None, None
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+                return None, None
+            chunks, n = [], 0
+            while True:
+                b = os.read(fd, 1 << 20)
+                if not b:
+                    break
+                chunks.append(b)
+                n += len(b)
+                if n > limit:
+                    return None, None
+            return b"".join(chunks), st
+        finally:
+            os.close(fd)
+
+    def kind_of(self, sandbox_path):
+        """'missing', 'file', 'symlink', 'dir' or 'other' for the last path component (never follows links)."""
+        try:
+            fd = self._open_beneath(sandbox_path, os.O_PATH)
+        except FileNotFoundError:
+            return "missing"
+        except OSError:
+            return "other"                                   # a symlinked parent directory, or unreadable
+        try:
+            m = os.fstat(fd).st_mode
+            return ("symlink" if stat.S_ISLNK(m) else "file" if stat.S_ISREG(m) else "dir" if stat.S_ISDIR(m)
+                    else "other")
+        finally:
+            os.close(fd)
+
+    def read_bytes(self, sandbox_path, limit=8_000_000):
+        return self.read_with_stat(sandbox_path, limit)[0]
+
+    def write_bytes(self, sandbox_path, data, mode=0o644):
+        """Write a file under a workstation mount, creating parent directories; refuses symlinks in the path."""
+        fd = self._open_beneath(sandbox_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode, make_dirs=True)
+        try:
+            view = memoryview(data)
+            while view:
+                k = os.write(fd, view)
+                view = view[k:]
+        finally:
+            os.close(fd)
+
+    def read_file(self, sandbox_path):
+        """Bytes of a file for view_image (resolved like the shell would, relative to the current directory)."""
+        p, _, _ = self._locate(sandbox_path)
+        return self.read_bytes(sandbox_path, limit=4_000_000), p
 
     def cleanup(self, keep_to=None):
         if keep_to:
-            shutil.copytree(self.fs, Path(keep_to), dirs_exist_ok=True)
+            shutil.copytree(self.fs, Path(keep_to), dirs_exist_ok=True, symlinks=True)
         shutil.rmtree(self.ep, ignore_errors=True)
