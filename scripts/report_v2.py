@@ -41,7 +41,7 @@ def rate(cell):
 def dot_chart(rows, series, aria, width=760, note=None):
     """rows: list of (label, sublabel, {series_key: (k, n, blocked)}); series: list of (key, css class, legend).
     One row per model, one dot per series on a 0-100% axis; a thin line spans the dots."""
-    left, right, top, band = 178, 70, 30, 40
+    left, right, top, band = 178, 178, 30, 40
     plot_w = width - left - right
     height = top + band * len(rows) + 34
     x = lambda p: left + plot_w * p  # noqa: E731

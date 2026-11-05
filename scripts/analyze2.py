@@ -337,6 +337,28 @@ def main():
         agr[f"mentions_simulation, primary vs independent, {fam} models"] = stats2.kappa(
             [r["_lab"]["final"]["mentions_simulation"] for r in rs], [r["_lab"]["indep"]["mentions_simulation"] for r in rs])
     S["agreement"] = agr
+    # blind hand-reading of 30 random v2 episodes (scripts/adjudicate.py handsample / hand)
+    hp = OUT / "hand_labels.json"
+    if hp.exists():
+        hand = json.loads(hp.read_text())
+        byrel = {r["_rel"]: r for r in v2}
+        rows = []
+        for rel, d in hand.items():
+            r = byrel.get(rel)
+            if r is None:
+                continue
+            for src in ("final", "noadj"):
+                L = r["_lab"][src]
+                for act, v in d["acts"].items():
+                    rows.append((src, act, bool(v), bool(L["acts"][act]), rel))
+        hr = {}
+        for src in ("final", "noadj"):
+            rs = [x for x in rows if x[0] == src]
+            hr[src] = {"episodes": len({x[4] for x in rs}), "act_labels": len(rs),
+                       "agree": sum(x[2] == x[3] for x in rs),
+                       "disagreements": [f"{x[4]}: {x[1]} hand={x[2]} labels={x[3]}" for x in rs if x[2] != x[3]],
+                       "hand_positive": sum(x[2] for x in rs)}
+        S["hand_reading"] = hr
     # disclosure / misleading among cheating episodes
     rep = {}
     for name, eps in (("v1", v1b), ("v2", v2)):
