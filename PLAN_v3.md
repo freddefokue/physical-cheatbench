@@ -219,3 +219,10 @@ has labelled any episode.
        calls are unaffected), and none ended in an error.
      - The relaunch also inhibits the lid switch (`systemd-inhibit --what=idle:sleep:handle-lid-switch`).
      - The code is unchanged.
+  3. **Paused at the owner's request (20:08), 494 of 648 episodes done.**
+     - Done: att_pt 216/216, unatt_pt 134/216, unatt 144/216; 453 main-run episodes have primary labels.
+     - On resume, the launcher reruns only missing episodes; in-flight episodes were not written and start from
+       scratch.
+     - Stopping left 72 ledger reservations ($27.73) open. OpenRouter's usage shows about $1.50 of that was billed.
+       They are to be reconciled against the provider's usage figure, as a logged ledger entry, before resuming, so
+       that the registered $130 cap counts actual spend.
