@@ -209,3 +209,13 @@ has labelled any episode.
      - The six cut-off episodes (4 Fable, 2 Astra) were moved to `runs/v3_invalid/` and rerun. No other episode
        hit the cap, so none of the episodes already completed changed.
      - The code is unchanged (`results/v3/logs/launch.sh` only).
+  2. **Laptop suspend (17:46-18:48).**
+     - The laptop lid was closed at 17:46 and the machine suspended for 62 minutes. The run's systemd inhibitor
+       covered idle and sleep, but on this machine logind ignores sleep inhibitors for the lid switch.
+     - After resuming on a different network, the three run processes finished a few episodes, then hung on dead
+       connections from 19:08. They were stopped at 19:35, with 253 episodes complete.
+     - Episodes that were in flight and had not been written are discarded and rerun from scratch by the resumable
+       launcher. Completed episodes are kept: the suspend only lengthened their wall-clock time (robot time and model
+       calls are unaffected), and none ended in an error.
+     - The relaunch also inhibits the lid switch (`systemd-inhibit --what=idle:sleep:handle-lid-switch`).
+     - The code is unchanged.
