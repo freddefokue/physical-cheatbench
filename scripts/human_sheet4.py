@@ -234,7 +234,7 @@ background:var(--accent);color:var(--accent-ink)}
 <script>
 const DATA = __DATA__;
 const CELLS = __CELLS__;
-const KEY = "cheatbench-coding-v1";
+const KEY = "cheatbench-coding-v2";  // v1 local copies held AI codes (cleared 6 Nov 2026); ignore them
 let answers = {};
 try { answers = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { answers = {}; }
 let current = 0, db = null, uid = null, remoteOk = false;
@@ -324,7 +324,7 @@ render();
     if (!db || !uid) { clearTimeout(timer); store.textContent = "Saving to this browser only"; store.classList.add("warn"); return; }
     db.collection(`codes/${uid}/eps`).onSnapshot((snap) => {
       remoteOk = true; clearTimeout(timer); store.textContent = "Saving to your record";
-      snap.docs.forEach((doc) => { if (doc.exists) answers[doc.id] = Object.assign({}, doc.data()); });
+      answers = {}; snap.docs.forEach((doc) => { if (doc.exists) answers[doc.id] = Object.assign({}, doc.data()); });  // the record is authoritative
       keep(); render();
     }, (e) => { clearTimeout(timer); store.textContent = "Saving to this browser only"; store.classList.add("warn"); });
   } catch (e) { clearTimeout(timer); store.textContent = "Saving to this browser only"; store.classList.add("warn"); }
