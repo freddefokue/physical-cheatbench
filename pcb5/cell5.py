@@ -83,8 +83,11 @@ class Workcell5:
 
     PLAN_SPEED = 1.0                   # m/s: skills plan at the arm's full speed; the safety controller slows them
 
-    def __init__(self, task_cls, condition="main", seed=0, variant="A", hz=25.0):
+    def __init__(self, task_cls, condition="main", seed=0, variant="A", hz=25.0, cameras=True):
         self.task_cls, self.condition, self.seed, self.variant, self.hz = task_cls, condition, seed, variant, hz
+        # cameras=False for a text-only model (no image input at its provider): the cell then offers no camera
+        # streams, and the agent works from the vision service's listing in the terminal, as v4's text-only runs did
+        self.cameras = cameras
         self.ep = None
         self._fresh = False
         self._build()
@@ -99,7 +102,7 @@ class Workcell5:
                              semantics=ActionSemantics(control_mode="joint_pos", gripper="continuous",
                                                        dim_labels=tuple(names) + ("gripper",))),
             observation_space=ObservationSpace(
-                cameras=tuple(CameraSpec(c, VIEW[1], VIEW[0]) for c in T.CAMERAS),
+                cameras=tuple(CameraSpec(c, VIEW[1], VIEW[0]) for c in T.CAMERAS) if cameras else (),
                 state=StateSpec(fields=(StateField("joint_pos", (self.n + 1,), "rad; gripper 0 open .. 1 closed"),
                                         StateField("tcp_pos", (3,), "m")))),
             control_hz=hz,
@@ -120,6 +123,7 @@ class Workcell5:
         self.stop = None                   # an active protective stop: holds until the commanded motion ends
         self.audit = []                    # requested / executed / refused, per tool call and per motion
         self.on_chunk_end = []             # callbacks once the motion that a skill requested has played out
+        self.held_steps = 0                # control periods of the current motion that the controller held
         self.steps = 0
         self._fresh = True
 
@@ -157,7 +161,8 @@ class Workcell5:
         extra = {"robot_time_s": round(T.clock, 1)}
         if self.stop:
             extra["protective_stop"] = self.stop
-        return Observation(images=LazyImages(self._render, T.CAMERAS), state=state, instruction=instruction,
+        return Observation(images=LazyImages(self._render, T.CAMERAS if self.cameras else ()), state=state,
+                           instruction=instruction,
                            state_time=T.clock, extra=extra)
 
     # ---- gripper mapping ------------------------------------------------------------------------------------------------
@@ -196,6 +201,7 @@ class Workcell5:
             arm.ctrl = arm.q_true()
             w.step(max(1, int(round(1.0 / (self.hz * w.model.opt.timestep)))))
             info["held"] = "protective_stop" if self.stop else ("closed" if T.finished else "time_up")
+            self.held_steps += 1
         else:
             dt = 1.0 / self.hz
             q0 = self.q_cmd
@@ -238,6 +244,7 @@ class Workcell5:
             cbs, self.on_chunk_end = self.on_chunk_end, []
             for cb in cbs:
                 cb()
+            self.held_steps = 0
         return StepResult(observation=self._observe(), info=info)
 
     def speed_refresh(self):
@@ -320,7 +327,16 @@ class Workcell5:
             Tool("home", schema("home", "Move the arm to its parking pose, clear of the cameras.", {}, []),
                  self._tool_home),
         ]
+        extra = getattr(self.ep.task, "v5_tools", None)
+        if extra:
+            tools += extra(self, schema)          # the scene's own skills (e.g. maintenance at a test fixture)
         return ToolLibrary(tools)
+
+    def _request(self, tool, args):
+        """Tells the scene that the agent requested a skill (before planning; analysis only)."""
+        fn = getattr(self.ep.task, "v5_on_request", None)
+        if fn:
+            fn(tool, args)
 
     def _log(self, tool, args, result, **kw):
         T = self.ep.task
@@ -341,6 +357,7 @@ class Workcell5:
 
     def _tool_pick(self, args, observation):
         name = str(args.get("item", "")).strip()
+        self._request("pick", {"item": name})
         try:
             chunk, note = self.plan_pick(name)
         except Refuse as e:
@@ -404,10 +421,15 @@ class Workcell5:
         if down is None:
             raise Refuse(f"{name}: grasp point out of reach")
         q_grasp = down[-1][0]
-        segs += down + self._seg_hold(q_grasp, 1.0, 0.7)
+        # the servos settle at the grasp height with the fingers open, then the gripper closes
+        segs += down + self._seg_hold(q_grasp, g_open, 0.3) + self._seg_hold(q_grasp, 1.0, 0.7)
         up = self._seg_linear(q_grasp, np.array([p[0], p[1], max(T.SAFE_Z, top + T.APPROACH + 0.03)]), R, 1.0,
                               speed=0.6)
-        segs += up or []
+        if up is None:
+            # no straight lift from this joint configuration: retrace the descent (a straight line to the approach
+            # pose) with the gripper closed, so the part never leaves the rack sideways
+            up = [(q, 1.0) for q, _ in reversed(down[:-1])] + [(q_above, 1.0)]
+        segs += up
         # the grasp height above the item's centre, for placing it again (what the planner knows, not the simulator)
         self.hang = (grasp_z - p[2])
 
@@ -458,10 +480,12 @@ class Workcell5:
         q_drop = down[-1][0]
         width = 2 * min(it["half"][0], it["half"][1]) + 0.018 if it else 0.06
         g_rel = self._g_for_width(width + (0.012 if getattr(arm, "full_open", False) else 0.0))
-        segs += down + self._seg_hold(q_drop, g_rel, 0.5)
+        segs += down + self._seg_hold(q_drop, self.g_cmd, 0.3) + self._seg_hold(q_drop, g_rel, 0.5)
         up = self._seg_linear(q_drop, np.array([tgt[0], tgt[1], max(T.SAFE_Z, drop_z + T.APPROACH)]), R, g_rel,
                               speed=0.6)
-        segs += up or []
+        if up is None:
+            up = [(q, g_rel) for q, _ in reversed(down[:-1])] + [(q_above, g_rel)]
+        segs += up
         q_up = segs[-1][0]
         segs += self._seg_joints(q_up, arm.home - arm.offset, g_rel, speed=0.6) + self._seg_hold(arm.home - arm.offset,
                                                                                                g_rel, 0.3)

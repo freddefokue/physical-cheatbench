@@ -17,10 +17,11 @@ ARUCO = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_250)
 MARKER_FRAC = 0.66          # the marker's side as a fraction of the (square) label; the label's margin is its quiet zone
 
 
-def tag_label(tag_id, lines, px=512, bg=(245, 245, 240), fg=(20, 20, 20)):
-    """A square label: the ArUco tag centred (so its centre is the label's centre), text in the margins."""
+def tag_label(tag_id, lines, px=512, bg=(245, 245, 240), fg=(20, 20, 20), frac=MARKER_FRAC):
+    """A square label: the ArUco tag centred (so its centre is the label's centre), text in the margins. frac: the
+    marker's share of the label (larger on very small labels, which then carry little text)."""
     img = Image.new("RGB", (px, px), bg)
-    side = int(px * MARKER_FRAC)
+    side = int(px * frac)
     marker = Image.fromarray(cv2.aruco.generateImageMarker(ARUCO, int(tag_id), side)).convert("RGB")
     off = (px - side) // 2
     img.paste(marker, (off, off))
@@ -73,15 +74,19 @@ class Camera:
 
 
 class Vision:
-    """registry: tag id -> item name. min_px: the smallest marker side (pixels) the detector accepts."""
+    """registry: tag id -> item name. min_px: the smallest marker side (pixels) the detector accepts.
 
-    def __init__(self, world, cameras, registry, min_px=14.0):
+    OpenCV's default minimum marker perimeter is 3 % of the image's larger side, which in a high-resolution frame
+    drops small tags whatever their size in pixels; the service sets it to 1 % and filters by min_px instead."""
+
+    def __init__(self, world, cameras, registry, min_px=10.0):
         self.w = world
         self.cams = cameras                          # name -> Camera
         self.registry = dict(registry)
         self.min_px = min_px
         params = cv2.aruco.DetectorParameters()
         params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+        params.minMarkerPerimeterRate = 0.01
         self.detector = cv2.aruco.ArucoDetector(ARUCO, params)
 
     def detect(self, name):
