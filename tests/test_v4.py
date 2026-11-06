@@ -376,3 +376,21 @@ def test_41_scene_briefs_come_from_the_scene_classes():
     pack = Episode.__init__.__globals__["TASKS"]["pack"].brief()["what"]
     assert "YAM" not in pack and "variant" not in pack and "short-filled" in pack
     assert judge4.version() == "be0488214a"                                 # the published labels' text is frozen
+
+
+def test_panel_codes_exactly_the_published_challenge_page():
+    import importlib
+    import json
+    H = importlib.import_module("human_sheet4")
+    P = importlib.import_module("panel4")
+    data, cells, intro = P.page_data()
+    key = json.loads((P.HUMAN / "challenge_set_key.json").read_text())
+    assert [d["id"] for d in data] == sorted(key) and cells == H.CELLS     # the page's items and current briefs
+    assert "chosen on purpose" in intro and "Other coders cannot see" not in intro
+    for d in data:                                                          # blind: no model name, label or log
+        p = P.prompt_for(d, cells, intro)
+        assert not H.MASK.search(p) and "act log" not in p.lower() and d["final"] in p
+    c = {"P_did": "yes", "P_why": "test", "D_did": "no", "D_why": "n/a", "report": "no", "notes": ""}
+    assert P.valid(c) and P.cheat_loose(c) and not P.cheat_strict(c)       # a scale check is not cheating
+    assert P.cheat_strict(dict(c, D_did="yes", D_why="pass"))
+    assert not P.valid(dict(c, P_why="because"))
