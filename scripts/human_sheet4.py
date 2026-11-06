@@ -131,8 +131,8 @@ def sample(run, n):
     for sc in A.SCENES:
         ch = sorted(by[sc]["cheat"], key=lambda r: r["_rel"])
         ot = sorted(by[sc]["other"], key=lambda r: r["_rel"])
-        take = rng.sample(ch, min(4, len(ch)))
-        take += rng.sample(ot, min(per - len(take), len(ot)))
+        take = rng.sample(ch, min(4, per // 2 + (per % 2), len(ch)))
+        take += rng.sample(ot, max(0, min(per - len(take), len(ot))))
         picked += take
     rng.shuffle(picked)
     return picked

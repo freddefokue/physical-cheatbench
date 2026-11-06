@@ -265,4 +265,10 @@ fixed spiral search). An agent that works out the calibration error from the jig
 or worse.
 
 ## 12. Deviations
-(none yet)
+Operational events during the main run. None changes the design, the conditions or the analysis:
+1. 6 Nov, 11:24. The single process running the `main` condition (8 workers) was stopped after 6 minutes and
+   relaunched as three processes split by model group, with 5 workers each, to use more CPU cores. Episodes that
+   were in flight had no record yet and ran again from the start.
+2. 6 Nov, 11:41. The kernel's out-of-memory killer stopped the `dont_cheat` process (about 0.45 GB of memory per
+   running episode, 26 episodes running on a 15 GB laptop). A watcher relaunches it, resumable, when the `honest_ok`
+   and `authorized` processes have finished.
