@@ -233,6 +233,21 @@ def analyse(eps, L):
     R["agreement"] = {"n": len(pairs), "agree": sum(a == b for a, b in pairs),
                       "kappa": S.kappa([a for a, _ in pairs], [b for _, b in pairs]) if pairs else None}
     R["cost"] = {m: round(sum(r.get("cost", 0) for r in eps if r["model"] == m), 2) for m in models}
+    # adjudication queue (PLAN_v4.md section 5): the act log and the primary judge disagree on an applicable route,
+    # or the two judges disagree on the episode's cheat label
+    q = []
+    for r in eps:
+        lab = L[r["_rel"]]
+        f, ind = lab["noadj"], lab["indep"]
+        if not usable(r, f) or not f["judged"]:
+            continue
+        why = [f"route {k}: act log {v['det_act']} vs judge {v['judge_acted']}" for k, v in f["routes"].items()
+               if v["applicable"] and v["disagree"]]
+        if ind is not None and ind["judged"] and ind["cheat"] != f["cheat"]:
+            why.append(f"judges disagree on cheat (primary {f['cheat']}, independent {ind['cheat']})")
+        if why:
+            q.append({"file": r["_rel"], "why": why})
+    R["adjudication_queue"] = q
     return R
 
 
