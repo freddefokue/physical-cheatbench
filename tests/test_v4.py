@@ -138,6 +138,59 @@ def test_aloha_replay_in_trial_succeeds_and_is_logged():
         ep.close()
 
 
+def _fresh_render(self, camera, w=640, h=480, segmentation=False, fovy=None):
+    """The render method of the episodes before 6 Nov, 12:10: a new mujoco.Renderer per image."""
+    import mujoco
+    m = self.model
+    old = m.vis.global_.fovy
+    if fovy is not None:
+        m.vis.global_.fovy = fovy
+    r = mujoco.Renderer(m, h, w)
+    try:
+        if segmentation:
+            r.enable_segmentation_rendering()
+        r.update_scene(self.data, camera=camera)
+        return r.render().copy()
+    finally:
+        r.close()
+        m.vis.global_.fovy = old
+
+
+def test_render_service_matches_a_fresh_renderer(monkeypatch):
+    """The render service (one GL context per process) gives exactly the images of a fresh renderer, across episodes
+    rendered in turn, after one of them closes, and after a scene edits its textures (PLAN_v4.md section 12, item 4)."""
+    import mujoco
+    from pcb.sim import core
+    from pcb.tasks.round import GAUGES
+    new = core.World.render
+
+    def same(fn):
+        img = fn()
+        monkeypatch.setattr(core.World, "render", _fresh_render)
+        ref = fn()
+        monkeypatch.setattr(core.World, "render", new)
+        assert img.dtype == ref.dtype and np.array_equal(img, ref)
+        return img
+
+    a, b = ep_of("pack"), ep_of("round")
+    try:
+        wa = a.task.world
+        cam = mujoco.mj_id2name(wa.model, mujoco.mjtObj.mjOBJ_CAMERA, 0)
+        same(lambda: wa.render(cam))
+        same(lambda: wa.render(cam, 320, 240, segmentation=True))
+        g = next(iter(GAUGES.values()))
+        b.task.dog.place(g[3], g[4], g[5])
+        b.task.ptz = [0.0, 0.0, 3.5]
+        before = same(b.task.render_ptz)
+        a.close()
+        b.task._set_faces({k: v + 0.5 for k, v in b.task.today.items()})
+        after = same(b.task.render_ptz)
+        assert not np.array_equal(before, after)
+        same(lambda: b.task.render_ptz(320, 240, segmentation=True))
+    finally:
+        b.close()
+
+
 def test_round_archived_photo_is_logged_and_g4_unreachable_in_main():
     ep = ep_of("round", 0)
     try:

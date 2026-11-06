@@ -216,25 +216,50 @@ class Builder:
 
 
 class _RenderService:
-    """One thread per process owns every GL context. Creating and freeing a mujoco.Renderer per image leaks GPU-driver
-    memory (about 0.3-1.3 MB per image, measured on 6 Nov 2026), and the cell controller serves each command on a new
-    thread; so renders are queued to this thread, which keeps one renderer per (world, size, kind)."""
+    """Renders every image of the process in one thread, with one GL context that is made current once and never
+    released. Each world gets one MuJoCo render context (offscreen buffer, textures, meshes) for all its cameras, image
+    sizes and segmentation; the context is freed in this thread when the world closes or is garbage-collected.
+
+    Two earlier designs failed (6 Nov 2026). A mujoco.Renderer per image leaked GPU-driver memory, 0.3-1.3 MB per
+    image. Cached mujoco.Renderer objects sharing this thread corrupted one another: Renderer.close() frees its GL
+    objects in whichever GL context is current, i.e. another world's, and a cached context never sees texture data
+    changed after its first image. The calls below are the ones mujoco.Renderer makes, so images are unchanged."""
 
     def __init__(self):
+        import itertools
         import queue
         import threading
         self.q = queue.Queue()
+        self.ctx = {}                     # world token -> (MjrContext, {(w, h, segmentation): MjvScene}, MjvOption)
+        self.tokens = itertools.count(1)
+        self.started, self.start_error = threading.Event(), None
         self.thread = threading.Thread(target=self._loop, daemon=True, name="pcb-render")
         self.thread.start()
+        self.started.wait()
+        if self.start_error is not None:
+            raise self.start_error
 
     def _loop(self):
+        try:
+            from mujoco.rendering.classic import gl_context
+            self.gl = gl_context.GLContext(640, 480)
+            self.gl.make_current()
+        except Exception as e:  # noqa: BLE001  (raised in the creating thread)
+            self.start_error = e
+            self.started.set()
+            return
+        self.started.set()
         while True:
             fn, args, ev, box = self.q.get()
             try:
-                box["out"] = fn(*args)
+                out = fn(*args)
+                if box is not None:
+                    box["out"] = out
             except Exception as e:  # noqa: BLE001  (re-raised in the caller's thread)
-                box["err"] = e
-            ev.set()
+                if box is not None:
+                    box["err"] = e
+            if ev is not None:
+                ev.set()
 
     def call(self, fn, *args):
         import threading
@@ -246,6 +271,77 @@ class _RenderService:
         if "err" in box:
             raise box["err"]
         return box["out"]
+
+    def post(self, fn, *args):
+        """Queue without waiting (safe from a garbage-collection finalizer in any thread)."""
+        self.q.put((fn, args, None, None))
+
+    # ---- run in the render thread ----------------------------------------------------------------------------
+    def release(self, token):
+        entry = self.ctx.pop(token, None)
+        if entry is not None:
+            entry[0].free()               # the process's GL context is current: frees this world's objects only
+
+    def render(self, world, camera, w, h, segmentation, fovy):
+        import weakref
+        model, data = world.model, world.data
+        token = world.__dict__.get("_render_token")
+        if token is None:
+            token = world.__dict__["_render_token"] = next(self.tokens)
+            weakref.finalize(world, self.post, self.release, token)
+        entry = self.ctx.get(token)
+        if entry is None:
+            mjr = mujoco.MjrContext(model, mujoco.mjtFontScale.mjFONTSCALE_150.value)
+            mjr.readDepthMap = mujoco.mjtDepthMap.mjDEPTH_ZEROFAR
+            entry = self.ctx[token] = (mjr, {}, mujoco.MjvOption())
+        mjr, scenes, option = entry
+        scene = scenes.get((w, h, bool(segmentation)))
+        if scene is None:
+            if w > model.vis.global_.offwidth or h > model.vis.global_.offheight:
+                raise ValueError(f"image {w}x{h} exceeds the offscreen buffer")
+            scene = scenes[(w, h, bool(segmentation))] = mujoco.MjvScene(model, maxgeom=10000)
+        if not isinstance(camera, mujoco.MjvCamera):
+            cid = camera
+            if isinstance(cid, str):
+                cid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA.value, cid)
+                if cid == -1:
+                    raise ValueError(f'The camera "{camera}" does not exist.')
+            camera = mujoco.MjvCamera()
+            camera.fixedcamid = cid
+            if cid == -1:
+                camera.type = mujoco.mjtCamera.mjCAMERA_FREE
+                mujoco.mjv_defaultFreeCamera(model, camera)
+            else:
+                camera.type = mujoco.mjtCamera.mjCAMERA_FIXED
+        old = model.vis.global_.fovy
+        if fovy is not None:
+            model.vis.global_.fovy = fovy
+        try:
+            mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_OFFSCREEN.value, mjr)
+            mujoco.mjv_updateScene(model, data, option, None, camera, mujoco.mjtCatBit.mjCAT_ALL.value, scene)
+            flags = scene.flags.copy()
+            if segmentation:
+                scene.flags[mujoco.mjtRndFlag.mjRND_SEGMENT] = True
+                scene.flags[mujoco.mjtRndFlag.mjRND_IDCOLOR] = True
+            rect = mujoco.MjrRect(0, 0, w, h)
+            try:
+                mujoco.mjr_render(rect, scene, mjr)
+                out = np.empty((h, w, 3), dtype=np.uint8)
+                mujoco.mjr_readPixels(out, None, rect, mjr)
+            finally:
+                np.copyto(scene.flags, flags)
+            if segmentation:              # as mujoco.Renderer: id colours -> (object id, object type), background -1
+                im = out.astype(np.uint32)
+                seg = im[:, :, 0] + im[:, :, 1] * (2 ** 8) + im[:, :, 2] * (2 ** 16)
+                lut = np.full((scene.ngeom + 1, 2), fill_value=-1, dtype=np.int32)
+                vis = [g for g in scene.geoms[:scene.ngeom] if g.segid != -1]
+                ids = np.array([g.segid + 1 for g in vis], np.int32)
+                lut[ids, 0] = np.array([g.objid for g in vis], np.int32)
+                lut[ids, 1] = np.array([g.objtype for g in vis], np.int32)
+                out = lut[seg]
+            return np.flipud(out).copy()
+        finally:
+            model.vis.global_.fovy = old
 
 
 _RENDER = None
@@ -341,42 +437,20 @@ class World:
         return False
 
     # ---- rendering --------------------------------------------------------------------------------------------
-    def _renderer(self, w, h, segmentation):
-        """Called in the render thread only: a cached renderer for this world, size and kind."""
-        cache = self.__dict__.setdefault("_renderers", {})
-        key = (w, h, bool(segmentation))
-        r = cache.get(key)
-        if r is None:
-            r = mujoco.Renderer(self.model, h, w)
-            if segmentation:
-                r.enable_segmentation_rendering()
-            cache[key] = r
-        return r
-
-    def _render_in_thread(self, camera, w, h, segmentation, fovy=None):
-        r = self._renderer(w, h, segmentation)
-        old = self.model.vis.global_.fovy
-        if fovy is not None:
-            self.model.vis.global_.fovy = fovy
-        try:
-            r.update_scene(self.data, camera=camera)
-            return r.render().copy()
-        finally:
-            self.model.vis.global_.fovy = old
-
     def render(self, camera, w=640, h=480, segmentation=False, fovy=None):
         """camera: a camera name or an MjvCamera; fovy applies to a free MjvCamera (zoom)."""
-        return render_service().call(self._render_in_thread, camera, w, h, segmentation, fovy)
+        svc = render_service()
+        return svc.call(svc.render, self, camera, w, h, segmentation, fovy)
+
+    def textures_changed(self):
+        """Call after editing model.tex_data: the next image builds a fresh render context with the new textures."""
+        token = self.__dict__.get("_render_token")
+        if token is not None:
+            svc = render_service()
+            svc.call(svc.release, token)
 
     def close_renderers(self):
-        def _close():
-            for r in self.__dict__.get("_renderers", {}).values():
-                try:
-                    r.close()
-                except Exception:  # noqa: BLE001
-                    pass
-            self.__dict__["_renderers"] = {}
-        render_service().call(_close)
+        self.textures_changed()
 
     def visible_geoms(self, camera, w=320, h=240):
         """Pixel counts per geom id visible from a camera (from a segmentation render)."""

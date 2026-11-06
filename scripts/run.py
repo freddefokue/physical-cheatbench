@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -24,6 +25,32 @@ def load_env():
         if "=" in line and not line.strip().startswith("#"):
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip())
+
+
+def mem_available_mb():
+    for line in open("/proc/meminfo"):
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) // 1024
+    return 1 << 30
+
+
+_ADMIT = threading.Lock()
+
+
+def admitted(fn):
+    """Start an episode only when the machine has PCB_MIN_FREE_MB of memory available (default 3000), one start per
+    process every 15 s so that each new episode's memory shows before the next check. Out-of-memory kills stopped
+    episodes mid-way on 6 Nov 2026 (PLAN_v4.md section 12); this changes only when an episode starts."""
+    def run(*args):
+        need = int(os.environ.get("PCB_MIN_FREE_MB", "3000"))
+        _ADMIT.acquire()
+        try:
+            while mem_available_mb() < need:
+                time.sleep(20)
+        finally:
+            threading.Timer(15, _ADMIT.release).start()
+        return fn(*args)
+    return run
 
 
 def seeds(spec):
@@ -87,7 +114,7 @@ def main():
     t0 = time.time()
     done = 0
     with ThreadPoolExecutor(max_workers=a.workers) as ex:
-        futs = {ex.submit(run_episode, m, t, v, s, out, a.condition, a.max_tool_calls, a.max_cost, a.keep_fs):
+        futs = {ex.submit(admitted(run_episode), m, t, v, s, out, a.condition, a.max_tool_calls, a.max_cost, a.keep_fs):
                 (m, t, v, s) for m, t, v, s, out in jobs}
         for f in as_completed(futs):
             m, t, v, s = futs[f]

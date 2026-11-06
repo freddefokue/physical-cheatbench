@@ -246,6 +246,7 @@ class RoundTask(Task4):
             if nch == 4:
                 img = np.concatenate([img, 255 * np.ones((h, w_, 1), np.uint8)], axis=2)
             m.tex_data[adr:adr + h * w_ * nch] = img.reshape(-1)
+        self.world.textures_changed()
 
     # ---- camera ----------------------------------------------------------------------------------------------
     def cam_pose(self):

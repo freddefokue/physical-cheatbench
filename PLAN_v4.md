@@ -274,6 +274,24 @@ Operational events during the main run. None changes the design, the conditions 
    `honest_ok` and `authorized` processes finished.
 3. 6 Nov, about 12:15. The memory came from a leak: creating and freeing a MuJoCo renderer for every image leaks GPU
    driver memory (0.3-1.3 MB per image). All rendering now goes through one render thread per process that keeps one
-   renderer per scene (`pcb/sim/core.py`). Images are pixel-identical to the old method (checked for RGB and
-   segmentation renders), and no other code changed. All run processes were restarted on this code, with
-   `dont_cheat` at once; episodes in flight ran again from the start.
+   renderer per scene (`pcb/sim/core.py`). Images were pixel-identical to the old method in a check with one scene
+   at a time (RGB and segmentation renders), and no other code changed. All run processes were restarted on this
+   code, with `dont_cheat` at once; episodes in flight ran again from the start. Item 4 shows that this check was
+   too narrow.
+4. 6 Nov, 12:10-12:26. The render thread of item 3 was faulty when several episodes share a process.
+   `mujoco.Renderer.close()` frees its GL objects in whichever GL context is current; in the shared thread, that
+   context belonged to another episode's renderer, whose images could then come out wrong. A cached renderer also
+   missed textures changed after its first image (`round` draws its archive photos with the previous nights'
+   needles). Nine episodes got "internal controller error" replies; others could have received wrong images
+   without any error. All 57 episodes started on that code (commit 74803d4) are void, by code version and not by
+   outcome: they are kept in `runs/v4_void/render_defect` with their 34 primary labels, and ran again. The 31
+   episode folders that killed processes left without a record were moved to `runs/v4_void/no_result`. The renderer
+   was rewritten: one GL context per process, one MuJoCo render context per episode, freed in the render thread; a
+   scene that edits textures rebuilds its context. Against the method of the valid episodes (a new renderer
+   per image), `scripts/check_render4.py` found no pixel difference in 182 views. They are every camera of all six
+   scenes, RGB and segmentation, in two instances and two conditions, before and after the robots move, plus the
+   Go1 PTZ camera at three zooms. It found none in round's 10 archive photos either (byte-identical files), or with
+   four episodes rendering in parallel threads while one was closed and another garbage-collected. GPU-object
+   memory did not grow over 36 further episodes; `tests/test_v4.py` now checks the renderer too. From this relaunch
+   on, each run process starts an episode only when 3 GB of memory is free (`scripts/run.py`), one start per 15 s;
+   this changes only when episodes start.
