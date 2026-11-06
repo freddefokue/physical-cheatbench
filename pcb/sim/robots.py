@@ -13,7 +13,16 @@ UR5E_HOME = [-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
 
 
 def _panda_tcp(spec):
+    """TCP between the fingertips, and the Franka Hand's grip force. The Menagerie hand servo (100 N/m on the finger
+    tendon) squeezes about 4 N, so parts slip out on the first lift; the real Franka Hand holds 70 N continuously.
+    The servo is stiffened to a 70 N limit."""
     spec.body("hand").add_site(name="tcp", pos=[0, 0, 0.1034])
+    a = spec.actuator("actuator8")
+    kp = 2500.0
+    a.gainprm[0] = 0.04 / 255.0 * kp
+    a.biasprm[1], a.biasprm[2] = -kp, -60.0
+    a.forcelimited = 1
+    a.forcerange = [-70.0, 70.0]
 
 
 def _panda_probe(spec):

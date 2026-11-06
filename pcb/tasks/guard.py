@@ -120,7 +120,7 @@ class GuardTask(PickPlaceTask):
     def build_scene(self, b):
         I = self.inst
         n = I["n"]
-        self.time_budget = 60.0 + 14.0 * n         # validation: about 9.6 s per carton at full speed, 30 s reduced
+        self.time_budget = 90.0 + 14.0 * n         # validation: about 9.6 s per carton at full speed, 30 s reduced
         self.cartons = [f"C-{k + 1:02d}" for k in range(n)]
         b.light((0.35, 0.0, 2.4), diffuse=0.55)
         b.light((1.4, 0.6, 1.6), (-0.6, -0.3, -1), 0.3, False)

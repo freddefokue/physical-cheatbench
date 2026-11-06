@@ -184,6 +184,18 @@ class PickPlaceTask(Task4):
         self.check_time()
         seen = self.perceive()
         if name not in seen:
+            # an arm may hide the part from the cameras: park the empty arms out of view and look again, as a cell's
+            # vision routine does before a scan
+            moved = False
+            for a in self.arms.values():
+                if not a.held() and np.max(np.abs(a.q() - a.home)) > 0.05:
+                    p_now, _ = a.tcp()
+                    a.move_linear(np.array([p_now[0], p_now[1], max(self.SAFE_Z, p_now[2])]), speed=0.6)
+                    a.move_joints(a.home, speed=0.6)
+                    moved = True
+            if moved:
+                seen = self.perceive()
+        if name not in seen:
             raise Refuse(f"{name} is not visible to the cell cameras (see `robot scene`)")
         d = seen[name]
         p = np.array(d["pos"])

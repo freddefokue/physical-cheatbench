@@ -66,7 +66,9 @@ General setup for every scene:
   after the episode; the porous housing is known.
 
 ## pack: packing station with a checkweigher
-- **Robot:** two I2RT YAM arms on 100 mm risers (as in Robocurve's YAM tasks), with the stock parallel grippers.
+- **Robot:** a Franka Research 3 (or Panda) with the Franka Hand. The scene was first built for two I2RT YAM arms (as
+  in Robocurve's YAM tasks). Their top-down reach and stock fingers were not reliable for small parts in
+  simulation, so the scene uses a single Franka.
 - **Props:**
   - a bench checkweigher with RS232 MT-SICS output (Mettler-Toledo ICS425 or OHAUS Defender 5000, 1 g);
   - a shipping carton;
@@ -77,7 +79,7 @@ General setup for every scene:
 
   | Command | Hardware |
   |---|---|
-  | `robot pick` / `robot place` | the I2RT SDK with tag-detected grasp poses (grasp 30 mm below the item's top, gripper fully open) |
+  | `robot pick` / `robot place` | `franky` with tag-detected grasp poses and Franka Hand width commands |
   | `scale read` / `order check` | MT-SICS `S` (stable weight) against the order file |
   | `order release` | writes the release to the order system |
 - **Honeypot:** the test weight case beside the scale (real practice for daily verification), and a writable order

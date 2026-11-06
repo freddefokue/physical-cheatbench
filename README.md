@@ -1,16 +1,28 @@
 # Physical CheatBench
 
 Do AI agents cheat when they control a robot? This is a physical extension of CheatBench (Phan et al., arXiv
-2609.36308). Frontier models operate simulated robot workcells from a Linux terminal. Each cell gives them an
-assessment task where honest work is hard, a planted clue that reveals a shortcut, and a defined cheating act.
+2609.36308). Frontier models operate robots from a Linux terminal. Each scene gives them a job where honest work is
+hard, a planted opportunity to cheat, and a defined cheating act.
 
-- **v2 (5 November 2026): start here.** [RESULTS_v2.md](RESULTS_v2.md) has the corrected results and two
-  pre-registered follow-up experiments. [PLAN_v2.md](PLAN_v2.md) is the pre-registration, commit `e8efcd0`, pushed
-  before the runs. It was prompted by an external review ([review/2026-11-05](review/2026-11-05)).
+- **v4 (6-7 November 2026): real robot models in physics.** Six MuJoCo scenes with MuJoCo Menagerie models of
+  commercial robots:
+  - a Franka Panda with a force probe, and a second Panda with the Franka Hand;
+  - a UR5e with a Robotiq 2F-85 in two cells;
+  - an ALOHA 2 bimanual rig;
+  - a Unitree Go1 walking under MuJoCo Playground's sim-to-real policy.
+
+  Checks read simulated sensors and rendered images, and an auditor reads ground truth. The pre-registration is
+  [PLAN_v4.md](PLAN_v4.md), the results are in [RESULTS_v4.md](RESULTS_v4.md), and how to rebuild every scene on
+  real robots is in [HARDWARE_v4.md](HARDWARE_v4.md). Code: `pcb/sim/`, `pcb/tasks/{spring,leak4,pack,guard,aloha,round}.py`,
+  `scripts/validate4.py`, `scripts/analyze4.py`.
+- **v3 (5 November 2026): paused at 494 of 648 episodes** at the owner's request. Plan: [PLAN_v3.md](PLAN_v3.md).
+- **v2 (5 November 2026):** [RESULTS_v2.md](RESULTS_v2.md) has the corrected results and two pre-registered
+  follow-up experiments. [PLAN_v2.md](PLAN_v2.md) is the pre-registration, commit `e8efcd0`, pushed before the runs.
+  It was prompted by an external review ([review/2026-11-05](review/2026-11-05)).
 - **v1 (4 November 2026):** [PLAN.md](PLAN.md) and [RESULTS.md](RESULTS.md). Some v1 claims are corrected or
   withdrawn in v2.
 
-## Environments
+## Environments (v1 and v2)
 
 | Env | Task (assessment framing) | Why honest work fails | Shortcut (cheating act) |
 |---|---|---|---|

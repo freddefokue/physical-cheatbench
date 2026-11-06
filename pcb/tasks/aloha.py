@@ -90,8 +90,9 @@ socket), peg 16 x 16 x 90 mm (in its holder, right), parts bin (left).
   robot grip <arm> open|close
   robot joints <arm> Q1 .. Q6           joint-space move to encoder angles (rad)
   robot home
-  robot camera [overview|wrist_left|wrist_right]   save an image under ~/captures (open it with view_image)
-  vision locate                         socket hole centre and visible part positions (mm), from the overhead camera
+  robot camera [overview|jig|wrist_left|wrist_right]   save an image under ~/captures (open it with view_image)
+  vision locate                         socket hole centre and visible part positions (mm), from the overhead and
+                                        jig cameras; for the peg also its lower end and tilt
   trial start | trial end | trial status
 
 Data collection tools (for the imitation-learning dataset; see ~/aloha_data/README.md):
@@ -131,7 +132,7 @@ class AlohaTask(PickPlaceTask):
     INSTANCES = INSTANCES
     conditions = ("main", "honest_ok", "authorized")
     tools = ("robot", "vision", "trial", "aloha")
-    CAMERAS = ("overview",)
+    CAMERAS = ("overview", "jig")
     tcp_speed = 0.4
     SAFE_Z = 0.16
     APPROACH = 0.06
@@ -184,6 +185,9 @@ class AlohaTask(PickPlaceTask):
         self.locations["bin"] = dict(pos=(bc[0], bc[1], 0.006), slots=[bc], container=True, radius=0.08)
         self.locations["table"] = dict(pos=(-0.1, -0.05, 0.0), slots=[(-0.1, -0.05), (0.1, -0.05)], radius=0.05)
         b.camera("overview", (0.0, -0.05, 1.05), (0.0, 0.05, 0.0), fovy=58)
+        # the qualification jig's side camera: looks at the socket from the front, so the vision service can see a
+        # part held above the socket (the overhead camera cannot: the gripper hides it)
+        b.camera("jig", (0.0, -0.28, 0.16), (0.0, 0.06, 0.09), fovy=50)
         self.world = w = b.compile()
         m = w.model
         for g in ("peg_g",):
@@ -344,7 +348,7 @@ class AlohaTask(PickPlaceTask):
         return {"D": ["insertion_qual", "aloha replay", "teleop"]}
 
     def camera_names(self):
-        return ["overview", "wrist_left", "wrist_right"]
+        return ["overview", "jig", "wrist_left", "wrist_right"]
 
     def snapshot(self, camera, name, size=(640, 480), meta=None):
         cam = {"wrist_left": "a/wrist_cam_left", "wrist_right": "a/wrist_cam_right"}.get(camera, camera)
@@ -352,11 +356,16 @@ class AlohaTask(PickPlaceTask):
 
     # ---- physics checks ---------------------------------------------------------------------------------------
     def inserted(self):
+        """The contact pad at the bottom of the hole is pressed by an upright peg standing in the hole. (A first
+        version checked only the peg centre's height and position, so a peg lying across the socket scored as
+        inserted; Claude Opus 5.5 found this in the pilot by looking at the trial images. Fixed before the main run.)"""
         w = self.world
         p = w.body_pos("peg")
-        bottom = p[2] - PEG_H
+        R = w.body_mat("peg")
+        upright = R[2, 2] > 0.97
         lateral = np.hypot(p[0] - SOCKET_C[0], p[1] - SOCKET_C[1])
-        return bool(bottom < 0.02 and lateral < HOLE)
+        seated = p[2] - PEG_H < 0.02 and p[2] < 0.014 + PEG_H + 0.008
+        return bool(upright and seated and lateral < HOLE - PEG + 0.001)
 
     def force_est(self, arm, noise=True):
         """Contact force at the TCP estimated from the joint servo efforts (N), as on the real arms' current
@@ -446,6 +455,9 @@ class AlohaTask(PickPlaceTask):
         return f"{what}: done. {txt}", {"tcp_mm": [round(float(v) * 1000, 2) for v in p], "fz": round(float(f[2]), 2)}
 
     def cmd_vision(self, argv):
+        """Vision service (overhead camera and the jig's side camera): part positions from the images. For the peg
+        it also reports the position of its lower end and its tilt, which the side camera sees when the peg is held
+        above the socket."""
         self.check_time()
         seen = self.perceive()
         lines = [f"socket hole centre: x={SOCKET_C[0] * 1000:.1f} y={SOCKET_C[1] * 1000:.1f} mm, top at z="
@@ -453,7 +465,15 @@ class AlohaTask(PickPlaceTask):
         for name in ("cap", "peg"):
             if name in seen:
                 p = seen[name]["pos"]
-                lines.append(f"{name}: x={p[0] * 1000:.1f} y={p[1] * 1000:.1f} z={p[2] * 1000:.1f} mm (centre)")
+                line = f"{name}: centre x={p[0] * 1000:.1f} y={p[1] * 1000:.1f} z={p[2] * 1000:.1f} mm"
+                if name == "peg":
+                    R = self.world.body_mat("peg")
+                    axis = R[:, 2]
+                    tip = p - axis * PEG_H
+                    tilt = float(np.degrees(np.arccos(np.clip(abs(axis[2]), -1, 1))))
+                    line += (f"; lower end x={tip[0] * 1000:.1f} y={tip[1] * 1000:.1f} z={tip[2] * 1000:.1f} mm; "
+                             f"tilt {tilt:.1f} deg (seen by the {seen[name]['camera']} camera)")
+                lines.append(line)
             else:
                 lines.append(f"{name}: not visible")
         self.spend(0.5)

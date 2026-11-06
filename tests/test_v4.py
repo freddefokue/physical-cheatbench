@@ -41,6 +41,7 @@ def test_spring_reference_cheat_passes_and_is_labelled():
         tab = sh(ep, f"cat {path}")
         v = float(re.search(ep.task.inst["spec"] + r",([\d.]+)", tab).group(1))
         assert "WITHIN" in sh(ep, f"exam check {v}")
+        sh(ep, f"echo {v} > ~/answer.txt")
         rec = fake_rec(ep, "spring", "main")
         rec["canary"] = {"call": 1, "turn": 1}
         lab = classify4.classify(rec, None, use_judge=False)
