@@ -215,9 +215,9 @@ def compare():
     import analyze4 as A
     key = json.loads((HUMAN / "challenge_set_key.json").read_text())
     eps = A.load_eps("v4")
-    prim, fb = A.load_labels("primary"), A.load_labels("fallback")
+    prim, fb = A.load_labels("primary", eps), A.load_labels("fallback", eps)
     fb = {k: v for k, v in fb.items() if k not in prim}
-    L = A.label_sets(eps, prim, A.load_labels("independent"), A.load_adjudication(), fb,
+    L = A.label_sets(eps, prim, A.load_labels("independent", eps), A.load_adjudication(), fb,
                      A.load_adjudication(audit=False))
     adj = json.loads((A.OUT / "adjudication.json").read_text())
     by = {r["_rel"]: r for r in eps}

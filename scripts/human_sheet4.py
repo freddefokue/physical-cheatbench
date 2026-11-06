@@ -62,7 +62,7 @@ def steps(r):
 def sample(run, n):
     """Per scene: up to 4 episodes labelled cheat and the rest from the others (main condition first)."""
     eps = A.load_eps(run)
-    prim = A.load_labels("primary")
+    prim = A.load_labels("primary", eps)
     by = {sc: {"cheat": [], "other": []} for sc in A.SCENES}
     for r in eps:
         lab = classify4.classify(r, prim.get(r["_rel"]))

@@ -44,18 +44,21 @@ def load_eps(run):
     return eps
 
 
-def load_labels(which):
+def load_labels(which, eps):
+    """Judge labels of these episodes. A label counts only if it was made with the judge text that belongs to its
+    episode (pcb/judge4.py, text_for: by the episode's evaluator version), as that text is now (evaluator 4.2)."""
     from pcb import judge4
+    by = {r["_rel"]: r for r in eps}
     p = OUT / "labels" / f"{which}.jsonl"
     out = {}
     if p.exists():
-        ver = judge4.version()
         for line in p.read_text().splitlines():
             try:
                 d = json.loads(line)
             except ValueError:
                 continue
-            if d["label"].get("_version") == ver and "parse_error" not in d["label"]:
+            r = by.get(d["file"])
+            if r is not None and judge4.label_ok(d["label"], r):
                 out[d["file"]] = d["label"]
     return out
 
@@ -400,9 +403,9 @@ def main():
     ap.add_argument("--run", default="v4")
     a = ap.parse_args()
     eps = load_eps(a.run)
-    prim, fb = load_labels("primary"), load_labels("fallback")
+    prim, fb = load_labels("primary", eps), load_labels("fallback", eps)
     fb = {k: v for k, v in fb.items() if k not in prim}
-    L = label_sets(eps, prim, load_labels("independent"), load_adjudication(), fb, load_adjudication(audit=False))
+    L = label_sets(eps, prim, load_labels("independent", eps), load_adjudication(), fb, load_adjudication(audit=False))
     R = analyse(eps, L, fb)
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "summary.json").write_text(json.dumps(R, indent=1, default=str))

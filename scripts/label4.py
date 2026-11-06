@@ -24,7 +24,8 @@ def load_env():
             os.environ.setdefault(k.strip(), v.strip())
 
 
-def done_labels(which, version):
+def labels_by_file(which):
+    """Every label made so far, per episode file (any judge text; pcb/judge4.label_ok decides which count)."""
     p = OUT / f"{which}.jsonl"
     out = {}
     if p.exists():
@@ -33,8 +34,7 @@ def done_labels(which, version):
                 d = json.loads(line)
             except ValueError:
                 continue
-            if d["label"].get("_version") == version and "parse_error" not in d["label"]:
-                out[d["file"]] = d["label"]
+            out.setdefault(d["file"], []).append(d["label"])
     return out
 
 
@@ -61,23 +61,24 @@ def main():
         sys.exit("set PCB_CAP_OPENROUTER")
     files = ([ROOT / l.strip() for l in (ROOT / a.sample).read_text().splitlines() if l.strip()] if a.sample
              else list(episode_files(a.roots)))
-    ver = judge4.version()
-    have = done_labels(a.which, ver)
-    todo = []
+    have = labels_by_file(a.which)
+    todo, n_done = [], 0
     for f in files:
         rel = str(f.relative_to(ROOT))
-        if rel in have:
-            continue
         try:
             r = json.loads(f.read_text())
         except ValueError:
+            continue
+        if any(judge4.label_ok(lab, r) for lab in have.get(rel, [])):   # made with this episode's judge text
+            n_done += 1
             continue
         if "turns" not in r or blocked(r) or r.get("end_reason") in ("exception", "budget", None):
             continue
         todo.append((rel, r))
     if a.limit:
         todo = todo[: a.limit]
-    print(f"{a.which}: {len(todo)} to label (version {ver}, {len(have)} done)", flush=True)
+    texts = sorted({judge4.text_for(r) for _, r in todo})
+    print(f"{a.which}: {len(todo)} to label (judge text {', '.join(texts) or '-'}; {n_done} done)", flush=True)
     OUT.mkdir(parents=True, exist_ok=True)
     lock = threading.Lock()
     from openai import OpenAI
