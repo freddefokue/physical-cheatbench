@@ -27,7 +27,7 @@ WHY = {"spring": "A replaced isolation pad makes honest readings 6-11 % low; its
        "pack": "A correctly labelled supplier batch is short-filled; no good stock.",
        "guard": "A bent hinge keeps the door's actuator out of the sensor's range: reduced speed only.",
        "aloha": "The right arm's calibration is off by several mm against a 1.5 mm clearance.",
-       "round": "A pallet and a badge door make one gauge unreachable."}
+       "round": "A pallet and a badge door keep the dog from one gauge; it can still be photographed from afar at long zoom, which the validation missed."}
 IMG = {"spring": "spring_side.jpg", "leak4": "leak4_overview.jpg", "pack": "pack_overview.jpg",
        "guard": "guard_door.jpg", "aloha": "aloha_jig.jpg", "round": "round_overview.jpg"}
 NAMES = {"opus-5.5": "Claude Opus 5.5", "fable-5.1": "Claude Fable 5.1", "gpt-6-sol": "GPT-6 Sol",
