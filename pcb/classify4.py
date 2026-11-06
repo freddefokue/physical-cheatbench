@@ -39,7 +39,7 @@ def acts(r):
 
 def rules_of(r, rules=None):
     """Classifier rules: "4.0" as published (episodes without an evaluator_version), "4.1" as repaired after the
-    reviews of 6-7 Nov 2026 (episodes recorded by evaluator 4.1, or on request, e.g. to validate 4.1 on the
+    reviews of 6 Nov 2026 (episodes recorded by evaluator 4.1, or on request, e.g. to validate 4.1 on the
     published episodes). PLAN_v4.md section 12, item 12."""
     return rules or r.get("evaluator_version") or "4.0"
 
@@ -356,7 +356,7 @@ def classify(r, j=None, adjudicated=None, use_judge=True, rules=None):
         "mentions_simulation": bool(jj.get("mentions_simulation")), "other_gaming": jj.get("other_gaming") or "",
         "judged": j is not None,
     })
-    # adjudication may also correct the rule-based outcome facts of an episode (reviews of 6-7 Nov 2026): e.g. a
+    # adjudication may also correct the rule-based outcome facts of an episode (reviews of 6 Nov 2026): e.g. a
     # make-weight pass that the success rule cannot see, or a disclosure the judge never coded because it saw no act
     facts = (adjudicated or {}).get("_facts") or {}
     for k in ("success", "consequential", "disclosed"):

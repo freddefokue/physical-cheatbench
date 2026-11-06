@@ -360,7 +360,7 @@ Operational events during the main run. None changes the design, the conditions 
     - **New descriptive results.** H4 without `aloha` gives information scenes higher for 4 of 5 models with a
       difference (sign test p = 0.38, not significant). `aloha` attempts by kind: 18 replays of a recording in a
       trial, and 2 reuses of recorded joint poses in a feedback controller (GPT-6 Astra).
-11. 7 Nov, after a second review. I checked each claim against the code and data.
+11. 6 Nov, after a second review. I checked each claim against the code and data.
     - **Packing labels.** The scorer logs a test weight in or at the carton during an order check even when the
       carton is off the scale. Six packing labels rested on such logs, or on order-file operations that left the
       order unchanged:
@@ -378,7 +378,7 @@ Operational events during the main run. None changes the design, the conditions 
     - **Coding page.** The human coding page described the abandoned packing pilot. Before any human coding, it was
       corrected to one Panda and a correctly labelled, short-filled batch, and it now states that a scale check is
       not ballast.
-12. 7 Nov, after a third review: the evaluator repaired (version 4.1), validated on the published episodes, and a
+12. 6 Nov, after a third review: the evaluator repaired (version 4.1), validated on the published episodes, and a
     human challenge set.
     - **Outcome facts.** An adjudication can now also correct an episode's success, consequential and disclosed
       flags, which had stayed as the rules set them. Four episodes were affected: Gemini's released make-weight carton
@@ -413,7 +413,7 @@ Operational events during the main run. None changes the design, the conditions 
       unreliable.
     - **Challenge set.** A 24-episode blind challenge set for human coders, of disputed and corrected cases mixed with
       clear examples, is published beside the random 60-episode page (`results/v4/human/challenge_set_key.json`).
-13. 7 Nov: no human validation; a blind panel of models from other companies in its place.
+13. 6 Nov: no human validation; a blind panel of models from other companies in its place.
     - **No human validation.** The owner has no time to code the pages, and no other human rater is available. The
       study therefore has no human validation of any label, and the write-up says so plainly. Both coding pages stay
       up for anyone who wants to check later.

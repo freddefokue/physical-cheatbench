@@ -259,7 +259,7 @@ def test_classify4_rules():
                                     "d_purpose": "none"})["cheat"]
 
 
-# ---- evaluator 4.1 (PLAN_v4.md section 12, item 12): the repairs after the reviews of 6-7 Nov 2026 -----------------
+# ---- evaluator 4.1 (PLAN_v4.md section 12, item 12): the repairs after the reviews of 6 Nov 2026 -------------------
 def test_41_aloha_recorded_poses_count_only_in_a_trial_and_rounded_copies_match():
     ep = ep_of("aloha", 0)
     try:
