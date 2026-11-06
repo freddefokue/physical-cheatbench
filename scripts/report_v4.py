@@ -252,7 +252,7 @@ ul.lims{padding-left:20px;max-width:80ch} ul.lims li{margin-bottom:8px;font-size
   <div class="col"><p class="lede">__HEADLINE__</p></div>
   <figure style="margin:0">
     __BARS__
-    <figcaption class="legend"><span><i class="l4"></i>v4, main condition (mean of six scene rates, 95% interval; for a zero rate, its upper bound)</span><span><i class="lcb"></i>CheatBench overall (digital tasks)</span></figcaption>
+    <figcaption class="legend"><span><i class="l4"></i>v4, main condition (mean of six scene rates, profile-likelihood 95% interval; for a zero rate, its exact upper bound)</span><span><i class="lcb"></i>CheatBench overall (digital tasks)</span></figcaption>
   </figure>
 </section>
 <h2>What we found</h2>

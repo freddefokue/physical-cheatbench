@@ -112,6 +112,58 @@ def cell(eps, L, model, scene, cond, which="final", value=lambda lab: lab["cheat
     return xs
 
 
+def zero_mean_bound(ns, alpha=0.05):
+    """Max of mean(p_s) subject to sum n_s log(1 - p_s) >= log(alpha): p_s = max(0, 1 - lam n_s) (KKT)."""
+    ns = np.asarray(ns, float)
+    g = lambda lam: float(sum(n * np.log(lam * n) for n in ns if lam * n < 1))
+    lo, hi = 1e-12, 1.0 / ns.min()
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if g(mid) < np.log(alpha) else (lo, mid)
+    lam = (lo + hi) / 2
+    return float(np.mean([max(0.0, 1 - lam * n) for n in ns]))
+
+
+def profile_interval(ks, ns, crit=1.920729):
+    """95 % profile-likelihood interval for the equal-weight mean of independent binomial rates k_s/n_s. For a
+    multiplier mu the constrained maximiser has dl/dp_s = mu in every scene (closed form per scene); the interval ends
+    where the profile log-likelihood falls chi2_1(0.95)/2 below its maximum. Handles all-0 and all-1 scenes."""
+    ks, ns = np.asarray(ks, float), np.asarray(ns, float)
+
+    def p_of(mu):
+        out = []
+        for k, n in zip(ks, ns):
+            if abs(mu) < 1e-12:
+                out.append(k / n)
+            elif k == 0:
+                out.append(max(0.0, 1 + n / mu) if mu < 0 else 0.0)
+            elif k == n:
+                out.append(min(1.0, n / mu) if mu > 0 else 1.0)
+            else:
+                b = mu + n
+                out.append(float((b - np.sqrt(b * b - 4 * mu * k)) / (2 * mu)))
+        return np.clip(np.array(out), 0.0, 1.0)
+
+    def ll(p):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = np.where(ks > 0, ks * np.log(np.where(p > 0, p, 1)), 0) + \
+                np.where(ns - ks > 0, (ns - ks) * np.log(np.where(p < 1, 1 - p, 1)), 0)
+            bad = ((ks > 0) & (p <= 0)) | ((ns - ks > 0) & (p >= 1))
+        return float(t.sum()) if not bad.any() else -np.inf
+
+    top = ll(ks / ns) - crit
+
+    def end(sign):
+        lo, hi = 0.0, sign * 1e7                    # mu between 0 (the estimate) and +/- infinity (the boundary)
+        if ll(p_of(hi)) >= top:
+            return float(np.mean(p_of(hi)))
+        for _ in range(200):
+            mid = (lo + hi) / 2
+            lo, hi = (mid, hi) if ll(p_of(mid)) >= top else (lo, mid)
+        return float(np.mean(p_of(lo)))
+    return [end(+1), end(-1)]
+
+
 def overall(eps, L, model, cond="main", which="final", value=lambda lab: lab["cheat"], scenes=SCENES, B=4000,
             seed=0):
     """Equal-weight mean of the scene rates (CheatBench's overall), with a bootstrap interval (episodes resampled
@@ -127,11 +179,18 @@ def overall(eps, L, model, cond="main", which="final", value=lambda lab: lab["ch
         bs.append(np.mean([rng.choice(v, len(v)).mean() for v in per.values()]))
     n = int(sum(len(v) for v in per.values()))
     if all(v.sum() == 0 for v in per.values()):
-        # resampling all-zero data always gives 0: report the exact one-sided 95 % upper bound of the pooled rate
-        # instead (0 of n), which is what the data can rule out (review of 6 Nov 2026)
-        return {"rate": 0.0, "ci": [0.0, float(1 - 0.05 ** (1 / n))], "scenes": len(per), "n": n,
-                "ci_method": "exact one-sided 95% upper bound, 0 of n"}
-    return {"rate": est, "ci": [float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))],
+        # resampling all-zero data always gives 0. Report instead the exact one-sided 95 % upper bound of the
+        # headline quantity, the equal-weight mean of the scene rates: the largest mean of scene rates p_s under
+        # which seeing no attempt at all still has probability >= 5 %, prod (1 - p_s)^n_s >= 0.05 (inverting that
+        # test gives a valid confidence set). Reviews of 6 Nov 2026.
+        return {"rate": 0.0, "ci": [0.0, zero_mean_bound([len(v) for v in per.values()])], "scenes": len(per),
+                "n": n, "ci_method": "exact one-sided 95% upper bound of the equal-weight mean, no attempts"}
+    # the pre-registered percentile bootstrap is degenerate when a scene's episodes are all 0 or all 1 (it gave
+    # "17 % [17 %, 17 %]"); report the 95 % profile-likelihood interval of the equal-weight mean instead, and keep
+    # the bootstrap interval for reference (reviews of 6 Nov 2026)
+    return {"rate": est, "ci": profile_interval([int(v.sum()) for v in per.values()], [len(v) for v in per.values()]),
+            "ci_method": "profile likelihood, 95 %",
+            "ci_bootstrap": [float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))],
             "scenes": len(per), "n": n}
 
 
