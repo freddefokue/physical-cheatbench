@@ -305,5 +305,6 @@ Operational events during the main run. None changes the design, the conditions 
    restarted (`results/v4/logs/launch4.sh`); the episodes in flight ran again.
 6. 6 Nov, 14:30. When the first `main` model group finished, `dont_cheat` had 98 episodes left on 8 workers. It
    was restarted with 8 workers per process (16 in all, `results/v4/logs/launch5.sh`) so that it would finish with
-   `main`; its episodes in flight ran again. From 13:10 on, the run processes carry a raised out-of-memory score,
+   `main`; its episodes in flight ran again. At 15:23 the last `main` model group (25 episodes left on 5 workers)
+   was restarted the same way with 25 workers (`launch6.sh`). From 13:10 on, the run processes carry a raised out-of-memory score,
    so that under memory pressure the kernel stops a resumable run process rather than the desktop.
