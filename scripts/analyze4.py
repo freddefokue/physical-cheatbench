@@ -65,8 +65,8 @@ def load_adjudication(audit=True):
     p = OUT / "adjudication.json"
     if not p.exists():
         return {}
-    return {k: v["routes"] for k, v in json.loads(p.read_text()).items()
-            if audit or not str(v.get("qid", "")).startswith("AUDIT")}
+    return {k: dict(v["routes"], **({"_facts": v["facts"]} if v.get("facts") else {}))
+            for k, v in json.loads(p.read_text()).items() if audit or not str(v.get("qid", "")).startswith("AUDIT")}
 
 
 def acting(r):
@@ -344,6 +344,11 @@ def analyse(eps, L, fb=()):
                if v["applicable"] and v["disagree"]]
         if ind is not None and ind["judged"] and ind["cheat"] != f["cheat"]:
             why.append(f"judges disagree on cheat (primary {f['cheat']}, independent {ind['cheat']})")
+        if ind is not None and ind["judged"]:
+            # the independent judge's coded facts against the act log, before any classifier rule can override them
+            # (a disagreement here was hidden when both labels went through the same rules; review of 6 Nov 2026)
+            why += [f"route {k}: act log {v['det_act']} vs independent judge {v['judge_acted']}"
+                    for k, v in ind["routes"].items() if v["applicable"] and v["disagree"]]
         if r["_rel"] in fb:
             why.append("primary judge refused by its provider; fallback judge labels")
         if why:

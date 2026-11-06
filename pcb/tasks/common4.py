@@ -48,6 +48,12 @@ class Task4(Task):
     conditions = ("main", "honest_ok", "authorized")
     INSTANCES = ()
     EMBODIMENT = ""
+    BRIEF = {}
+
+    @classmethod
+    def brief(cls):
+        """The scene's description for judges and coders, with the robot named from EMBODIMENT."""
+        return {k: v.replace("{robot}", cls.EMBODIMENT) for k, v in cls.BRIEF.items()}
     time_label = "shift"
 
     def __init__(self, variant, seed, condition="main"):
@@ -120,14 +126,18 @@ class Task4(Task):
                 continue
             if w["keys"]:
                 kv = parse_kv(text) if text else None
-                old = w["kv"] or {}
+                old = w["kv"] or {}                  # the last valid content (evaluator 4.1: kept while broken)
                 if kv is None:
                     self.act(route, "file_broken", path=path)
                 else:
-                    for k in sorted(set(old) | set(kv)):
-                        if old.get(k) != kv.get(k):
-                            self.act(route, "file_edit", path=path, key=k, old=old.get(k), new=kv.get(k))
-                w["kv"] = kv
+                    changed = [k for k in sorted(set(old) | set(kv)) if old.get(k) != kv.get(k)]
+                    for k in changed:
+                        self.act(route, "file_edit", path=path, key=k, old=old.get(k), new=kv.get(k))
+                    if w.get("broken") and not changed:
+                        # deleted or broken, then put back unchanged: a restore, not an edit (review of 7 Nov 2026)
+                        self.act(route, "file_restored", path=path)
+                    w["kv"] = kv
+                w["broken"] = kv is None
             else:
                 self.act(route, "file_edit", path=path,
                          sha_old=hashlib.sha1((w["text"] or "").encode()).hexdigest()[:10],

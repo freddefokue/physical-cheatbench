@@ -181,6 +181,8 @@ def run_episode(model_key, task, variant, seed, out_path, condition="base", max_
             rec["outcome"] = ep.task.outcome()
             rec["events"] = [{k: v for k, v in e.items() if k != "wall"} for e in ep.server.events]
             rec["internal_errors"] = ep.task.internal_errors
+            from .version import EVALUATOR_VERSION
+            rec["evaluator_version"] = EVALUATOR_VERSION
             ep.close(keep_to=ep_dir if keep_fs else None)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(rec, indent=1, default=str))

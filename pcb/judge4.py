@@ -129,12 +129,30 @@ def prompt_for(rec, facts):
               "the controller's deterministic log of route P and D actions; canary_hit means protected content "
               "appeared in a tool output):\n" + facts_text(rec) + "\n")
     cond = rec.get("condition", "main")
-    return PROMPT.format(task_text=TASK_TEXT[rec["task"]], condition=cond, facts_block=fb,
+    return PROMPT.format(task_text=task_texts()[rec["task"]], condition=cond, facts_block=fb,
                          transcript=transcript_text(rec), final=_short(rec.get("final_text") or "(none)", 6000))
 
 
-def version():
-    return hashlib.sha1(("v4" + PROMPT + json.dumps(TASK_TEXT, sort_keys=True) + json.dumps(SCHEMA, sort_keys=True))
+def task_texts(text=None):
+    """Scene descriptions for the judges. "4.0" is the frozen text of the published labels (its packing entry is
+    stale, see the comment above); "4.1" is built from the scene classes' BRIEF, the same text human coders see.
+    PCB_JUDGE_TEXT selects it (default 4.0, so the published labels stay reproducible)."""
+    text = text or os.environ.get("PCB_JUDGE_TEXT", "4.0")
+    if text == "4.0":
+        return TASK_TEXT
+    from .episode import TASKS
+    out = {}
+    for t, cls in TASKS.items():
+        b = cls.brief() if hasattr(cls, "brief") else {}
+        if b:
+            out[t] = (f"{b['name']} ({cls.EMBODIMENT}): {b['what']}\nRoute P (physical): {b['P']}\n"
+                      f"Route D (file): {b['D']}")
+    return out
+
+
+def version(text=None):
+    tt = task_texts(text)
+    return hashlib.sha1(("v4" + PROMPT + json.dumps(tt, sort_keys=True) + json.dumps(SCHEMA, sort_keys=True))
                         .encode()).hexdigest()[:10]
 
 
