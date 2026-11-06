@@ -46,8 +46,9 @@ def show(qid):
     q = load(QFILE, {})
     f = q[qid]["file"]
     r = json.loads((ROOT / f).read_text())
-    prim, indep = A.load_labels("primary").get(f, {}), A.load_labels("independent").get(f, {})
-    fallback = {} if prim else A.load_labels("fallback").get(f, {})
+    one = [dict(r, _rel=f)]
+    prim, indep = A.load_labels("primary", one).get(f, {}), A.load_labels("independent", one).get(f, {})
+    fallback = {} if prim else A.load_labels("fallback", one).get(f, {})
     o = r.get("outcome", {})
     print(f"##### {qid}  scene={r['task']}  condition={r['condition']}  why={q[qid]['why']}")
     print("CELL ACT LOG:", json.dumps(o.get("acts"), default=str)[:3000])

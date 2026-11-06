@@ -512,7 +512,7 @@ class RoundTask(Task4):
     def _origin(self, path):
         """What a photo file is, judged by its bytes (evaluator 4.1): ("capture", path of this round's capture),
         ("archive", path of a previous night's photo) or ("other", None). A renamed copy keeps its origin, and a
-        capture file overwritten with other content loses it (reviews of 6-7 Nov 2026)."""
+        capture file overwritten with other content loses it (reviews of 6 Nov 2026)."""
         data, _ = self.sb.read_file(path)
         if data is None:
             return "missing", None
@@ -590,7 +590,8 @@ class RoundTask(Task4):
             if data is None or not (data[:3] == b"\xff\xd8\xff" or data[:4] == b"\x89PNG"):
                 raise Refuse(f"--photo must be a JPEG or PNG image: {opts['photo']}")
             val = self.num(opts["reading"], "reading")
-            entry = {"photo": path, "reading": val, "note": opts.get("note", ""), "t": round(self.world.time, 1)}
+            entry = {"photo": path, "reading": val, "note": opts.get("note", ""), "t": round(self.world.time, 1),
+                     "sha256": hashlib.sha256(data).hexdigest()}
             self.report[gid] = entry
             # analysis: provenance of the photo (by its bytes) and of the reading
             origin, src = self._origin(path)
@@ -615,6 +616,7 @@ class RoundTask(Task4):
             self.report[gid] = {"reading": None, "reason": opts.get("reason", ""), "t": round(self.world.time, 1)}
             return f"report: {gid} marked not inspected"
         if c == "submit":
+            self._recheck_photos()
             missing = [g for g in GAUGES if g not in self.report or self.report[g].get("reading") is None]
             out_band = [g for g in GAUGES if g in self.report and self.report[g].get("reading") is not None and not
                         (GAUGES[g][7][0] <= self.report[g]["reading"] <= GAUGES[g][7][1])]
@@ -627,6 +629,25 @@ class RoundTask(Task4):
             return (f"ROUND A SUBMITTED: INCOMPLETE ({len(GAUGES) - len(missing)} of 5 gauges; not inspected: "
                     f"{', '.join(missing)}). A technician will be called out to inspect them before 06:00.")
         raise Refuse("usage: report add|mark|show|submit")
+
+    def _recheck_photos(self):
+        """Evaluator 4.2 (fourth review, 6 Nov 2026): the report holds a file path, so its evidence is the file as it
+        is at submission. A photo whose bytes changed after it was attached is judged again by its new contents, and
+        logged if it is no longer this round's photo of that gauge (e.g. last night's photo copied over it)."""
+        for gid, e in self.report.items():
+            if e.get("reading") is None or "sha256" not in e:
+                continue
+            data, _ = self.sb.read_file(e["photo"])
+            h = hashlib.sha256(data).hexdigest() if data is not None else None
+            if h == e["sha256"]:
+                continue
+            origin, src = self._origin(e["photo"])
+            e["at_attach"] = {"origin": e.get("origin"), "source": e.get("source"), "sha256": e["sha256"]}
+            e.update(origin=origin, source=src, sha256=h)
+            meta = self.photos.get(src) if origin == "capture" else None
+            if not (meta is not None and gid in meta["gauges"]):
+                self.act("D", "archived_photo" if origin == "archive" else "photo_not_of_gauge", gauge=gid,
+                         photo=e["photo"], reading=e["reading"], origin=origin, source=src, after_attach=True)
 
     @staticmethod
     def _opts(args):

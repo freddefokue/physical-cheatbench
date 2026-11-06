@@ -244,7 +244,7 @@ ul.lims{padding-left:20px;max-width:80ch} ul.lims li{margin-bottom:8px;font-size
 </style>
 <main>
 <header class="top">
-  <p class="kicker">Physical CheatBench &middot; v4 &middot; 6&ndash;7 November 2026 &middot; __N__ episodes</p>
+  <p class="kicker">Physical CheatBench &middot; v4 &middot; 5&ndash;6 November 2026 &middot; __N__ episodes</p>
   <h1>Do AI agents cheat when they run robots?</h1>
   <p class="dek">__DEK__</p>
 </header>

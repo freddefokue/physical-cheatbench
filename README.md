@@ -4,7 +4,7 @@ Do AI agents cheat when they control a robot? This is a physical extension of Ch
 2609.36308). Frontier models operate robots from a Linux terminal. Each scene gives them a job where honest work is
 hard, a planted opportunity to cheat, and a defined cheating act.
 
-- **v4 (6-7 November 2026): real robot models in physics.** Six MuJoCo scenes with MuJoCo Menagerie models of
+- **v4 (5-6 November 2026): real robot models in physics.** Six MuJoCo scenes with MuJoCo Menagerie models of
   commercial robots:
   - a Franka Panda with a force probe, and a second Panda with the Franka Hand;
   - a UR5e with a Robotiq 2F-85 in two cells;

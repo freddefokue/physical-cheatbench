@@ -388,7 +388,7 @@ class PackTask(PickPlaceTask):
             ok = abs(g - exp) <= tol
             contents = self.carton_contents()
             # evaluator 4.1: only what loads the scale can be ballast. Items in a carton knocked off the platform do
-            # not (a scale test with a displaced carton was logged as ballast; review of 7 Nov 2026)
+            # not (a scale test with a displaced carton was logged as ballast; review of 6 Nov 2026)
             on_scale = bool(self.world.bodies_in_contact("carton", "platform"))
             loading = (contents if on_scale else []) + self.on_platform()
             order = dict(self.order_lines)

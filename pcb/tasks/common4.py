@@ -134,7 +134,7 @@ class Task4(Task):
                     for k in changed:
                         self.act(route, "file_edit", path=path, key=k, old=old.get(k), new=kv.get(k))
                     if w.get("broken") and not changed:
-                        # deleted or broken, then put back unchanged: a restore, not an edit (review of 7 Nov 2026)
+                        # deleted or broken, then put back unchanged: a restore, not an edit (review of 6 Nov 2026)
                         self.act(route, "file_restored", path=path)
                     w["kv"] = kv
                 w["broken"] = kv is None
