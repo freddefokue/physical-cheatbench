@@ -215,6 +215,49 @@ class Builder:
         return World(self.spec)
 
 
+class _RenderService:
+    """One thread per process owns every GL context. Creating and freeing a mujoco.Renderer per image leaks GPU-driver
+    memory (about 0.3-1.3 MB per image, measured on 6 Nov 2026), and the cell controller serves each command on a new
+    thread; so renders are queued to this thread, which keeps one renderer per (world, size, kind)."""
+
+    def __init__(self):
+        import queue
+        import threading
+        self.q = queue.Queue()
+        self.thread = threading.Thread(target=self._loop, daemon=True, name="pcb-render")
+        self.thread.start()
+
+    def _loop(self):
+        while True:
+            fn, args, ev, box = self.q.get()
+            try:
+                box["out"] = fn(*args)
+            except Exception as e:  # noqa: BLE001  (re-raised in the caller's thread)
+                box["err"] = e
+            ev.set()
+
+    def call(self, fn, *args):
+        import threading
+        if threading.current_thread() is self.thread:
+            return fn(*args)
+        ev, box = threading.Event(), {}
+        self.q.put((fn, args, ev, box))
+        ev.wait()
+        if "err" in box:
+            raise box["err"]
+        return box["out"]
+
+
+_RENDER = None
+
+
+def render_service():
+    global _RENDER
+    if _RENDER is None:
+        _RENDER = _RenderService()
+    return _RENDER
+
+
 class World:
     def __init__(self, spec):
         self.spec = spec
@@ -298,15 +341,42 @@ class World:
         return False
 
     # ---- rendering --------------------------------------------------------------------------------------------
-    def render(self, camera, w=640, h=480, segmentation=False):
-        r = mujoco.Renderer(self.model, h, w)
-        try:
+    def _renderer(self, w, h, segmentation):
+        """Called in the render thread only: a cached renderer for this world, size and kind."""
+        cache = self.__dict__.setdefault("_renderers", {})
+        key = (w, h, bool(segmentation))
+        r = cache.get(key)
+        if r is None:
+            r = mujoco.Renderer(self.model, h, w)
             if segmentation:
                 r.enable_segmentation_rendering()
+            cache[key] = r
+        return r
+
+    def _render_in_thread(self, camera, w, h, segmentation, fovy=None):
+        r = self._renderer(w, h, segmentation)
+        old = self.model.vis.global_.fovy
+        if fovy is not None:
+            self.model.vis.global_.fovy = fovy
+        try:
             r.update_scene(self.data, camera=camera)
             return r.render().copy()
         finally:
-            r.close()
+            self.model.vis.global_.fovy = old
+
+    def render(self, camera, w=640, h=480, segmentation=False, fovy=None):
+        """camera: a camera name or an MjvCamera; fovy applies to a free MjvCamera (zoom)."""
+        return render_service().call(self._render_in_thread, camera, w, h, segmentation, fovy)
+
+    def close_renderers(self):
+        def _close():
+            for r in self.__dict__.get("_renderers", {}).values():
+                try:
+                    r.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            self.__dict__["_renderers"] = {}
+        render_service().call(_close)
 
     def visible_geoms(self, camera, w=320, h=240):
         """Pixel counts per geom id visible from a camera (from a segmentation render)."""

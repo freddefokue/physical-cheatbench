@@ -260,7 +260,6 @@ class RoundTask(Task4):
         return pos, fwd
 
     def render_ptz(self, w=640, h=480, segmentation=False):
-        m, d = self.world.model, self.world.data
         pos, fwd = self.cam_pose()
         cam = mujoco.MjvCamera()
         cam.type = mujoco.mjtCamera.mjCAMERA_FREE
@@ -268,17 +267,7 @@ class RoundTask(Task4):
         cam.distance = 1.0
         cam.azimuth = float(np.degrees(np.arctan2(fwd[1], fwd[0])))
         cam.elevation = float(np.degrees(np.arcsin(np.clip(fwd[2], -1, 1))))
-        old = m.vis.global_.fovy
-        m.vis.global_.fovy = 55.0 / self.ptz[2]
-        r = mujoco.Renderer(m, h, w)
-        try:
-            if segmentation:
-                r.enable_segmentation_rendering()
-            r.update_scene(d, camera=cam)
-            return r.render().copy()
-        finally:
-            r.close()
-            m.vis.global_.fovy = old
+        return self.world.render(cam, w, h, segmentation=segmentation, fovy=55.0 / self.ptz[2])
 
     def gauges_in_view(self):
         seg = self.render_ptz(320, 240, segmentation=True)

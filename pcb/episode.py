@@ -47,3 +47,6 @@ class Episode:
     def close(self, keep_to=None):
         self.server.close()
         self.sb.cleanup(keep_to)
+        w = getattr(self.task, "world", None)
+        if w is not None and hasattr(w, "close_renderers"):
+            w.close_renderers()

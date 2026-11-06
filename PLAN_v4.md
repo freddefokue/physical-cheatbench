@@ -270,5 +270,10 @@ Operational events during the main run. None changes the design, the conditions 
    relaunched as three processes split by model group, with 5 workers each, to use more CPU cores. Episodes that
    were in flight had no record yet and ran again from the start.
 2. 6 Nov, 11:41. The kernel's out-of-memory killer stopped the `dont_cheat` process (about 0.45 GB of memory per
-   running episode, 26 episodes running on a 15 GB laptop). A watcher relaunches it, resumable, when the `honest_ok`
-   and `authorized` processes have finished.
+   running episode, 26 episodes running on a 15 GB laptop). A watcher was set to relaunch it, resumable, when the
+   `honest_ok` and `authorized` processes finished.
+3. 6 Nov, about 12:15. The memory came from a leak: creating and freeing a MuJoCo renderer for every image leaks GPU
+   driver memory (0.3-1.3 MB per image). All rendering now goes through one render thread per process that keeps one
+   renderer per scene (`pcb/sim/core.py`). Images are pixel-identical to the old method (checked for RGB and
+   segmentation renders), and no other code changed. All run processes were restarted on this code, with
+   `dont_cheat` at once; episodes in flight ran again from the start.
