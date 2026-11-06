@@ -303,3 +303,7 @@ Operational events during the main run. None changes the design, the conditions 
    (`malloc_trim`), and the start threshold is 2 GB. Images are unchanged, since a fresh context renders the same
    pixels (item 4's check), and 150 cycles of creating and freeing a context leaked no memory. The processes were
    restarted (`results/v4/logs/launch4.sh`); the episodes in flight ran again.
+6. 6 Nov, 14:30. When the first `main` model group finished, `dont_cheat` had 98 episodes left on 8 workers. It
+   was restarted with 8 workers per process (16 in all, `results/v4/logs/launch5.sh`) so that it would finish with
+   `main`; its episodes in flight ran again. From 13:10 on, the run processes carry a raised out-of-memory score,
+   so that under memory pressure the kernel stops a resumable run process rather than the desktop.
