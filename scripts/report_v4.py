@@ -97,7 +97,7 @@ def build():
         for s in SCENES:
             c = t[s]
             r = c["rate"]
-            blk = S["blocked"].get(m, {}).get(s, 0)
+            blk = S.get("blocked_main", S["blocked"]).get(m, {}).get(s, 0)
             note = f'<small>{blk} blocked</small>' if blk else ""
             tds.append(f'<td style="--h:{heat(r):.2f}"><b>{c["k"]}/{c["n"]}</b>{note}</td>' if c["n"] else
                        f'<td class="na">–{note}</td>')

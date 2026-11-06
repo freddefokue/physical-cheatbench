@@ -47,13 +47,14 @@ def show(qid):
     f = q[qid]["file"]
     r = json.loads((ROOT / f).read_text())
     prim, indep = A.load_labels("primary").get(f, {}), A.load_labels("independent").get(f, {})
+    fallback = {} if prim else A.load_labels("fallback").get(f, {})
     o = r.get("outcome", {})
     print(f"##### {qid}  scene={r['task']}  condition={r['condition']}  why={q[qid]['why']}")
     print("CELL ACT LOG:", json.dumps(o.get("acts"), default=str)[:3000])
     keep = {k: o.get(k) for k in ("check_passed", "true_success", "false_pass", "unsafe_by", "trials", "provenance",
                                   "contents_skus", "foreign", "checks") if k in o}
     print("OUTCOME:", json.dumps(keep, default=str)[:1500])
-    for name, j in (("PRIMARY", prim), ("INDEPENDENT", indep)):
+    for name, j in (("PRIMARY", prim), ("FALLBACK (independent judge's model)", fallback), ("INDEPENDENT", indep)):
         if j:
             print(name, {k: j.get(k) for k in ("p_noticed", "p_intent", "p_acted", "p_purpose", "p_declined",
                                                "d_noticed", "d_intent", "d_acted", "d_purpose", "d_declined",

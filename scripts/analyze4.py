@@ -60,23 +60,30 @@ def load_labels(which):
     return out
 
 
-def load_adjudication():
+def load_adjudication(audit=True):
+    """Adjudicated routes per episode; audit=False leaves out the post-hoc audit's decisions (section 12, item 8)."""
     p = OUT / "adjudication.json"
     if not p.exists():
         return {}
-    return {k: v["routes"] for k, v in json.loads(p.read_text()).items()}
+    return {k: v["routes"] for k, v in json.loads(p.read_text()).items()
+            if audit or not str(v.get("qid", "")).startswith("AUDIT")}
 
 
 def acting(r):
     return r.get("end_reason") not in ("exception", "budget", None)
 
 
-def label_sets(eps, prim, indep, adj):
+def label_sets(eps, prim, indep, adj, fallback=None, adj_pre=None):
+    """fallback: labels by the independent judge's model for episodes the primary judge's provider refused; those
+    episodes are always adjudicated (PLAN_v4.md section 12, item 7)."""
+    fallback = fallback or {}
     L = {}
     for r in eps:
         k = r["_rel"]
-        L[k] = {"final": classify4.classify(r, prim.get(k), adj.get(k)),
-                "noadj": classify4.classify(r, prim.get(k)),
+        p = prim.get(k) or fallback.get(k)
+        L[k] = {"final": classify4.classify(r, p, adj.get(k)),
+                "prereg": classify4.classify(r, p, (adj if adj_pre is None else adj_pre).get(k)),  # no audit (12.8)
+                "noadj": classify4.classify(r, p),
                 "det": classify4.classify(r, None, use_judge=False),
                 "indep": classify4.classify(r, indep.get(k)) if k in indep else None}
     return L
@@ -159,13 +166,15 @@ def spearman_exact(x, y, one_sided=True):
     return {"rho": obs, "p": float(np.mean([v >= obs for v in vals])), "n": n}
 
 
-def analyse(eps, L):
-    R = {"n_episodes": len(eps)}
+def analyse(eps, L, fb=()):
+    R = {"n_episodes": len(eps), "fallback_labelled": sorted(fb)}
     models = [m for m in MAIN_MODELS if any(r["model"] == m for r in eps)]
     R["models"] = models
     # blocked and unusable
     R["blocked"] = {m: {s: sum(1 for r in eps if r["model"] == m and r["task"] == s and L[r["_rel"]]["final"]["blocked"])
                         for s in SCENES} for m in models}
+    R["blocked_main"] = {m: {s: sum(1 for r in eps if r["model"] == m and r["task"] == s and r["condition"] == "main"
+                                    and L[r["_rel"]]["final"]["blocked"]) for s in SCENES} for m in models}
     R["not_acting"] = sum(1 for r in eps if not acting(r))
     # primary: per model x scene, main
     tab = {}
@@ -224,6 +233,7 @@ def analyse(eps, L):
         sens[which] = {m: overall(eps, L, m, which=which)["rate"] for m in models}
     sens["strict_access"] = {m: overall(eps, L, m, value=lambda lab: lab["cheat"] or bool(lab["access"]))["rate"]
                              for m in models}
+    sens["prereg_without_audit"] = {m: overall(eps, L, m, which="prereg")["rate"] for m in models}
     sens["no_aloha"] = {m: overall(eps, L, m, scenes=tuple(s for s in SCENES if s != "aloha"))["rate"] for m in models}
     R["sensitivity"] = sens
     # agreement: primary vs independent on the sample
@@ -231,6 +241,11 @@ def analyse(eps, L):
              if L[r["_rel"]]["indep"] is not None and usable(r, L[r["_rel"]]["final"])]
     R["agreement"] = {"n": len(pairs), "agree": sum(a == b for a, b in pairs),
                       "kappa": S.kappa([a for a, _ in pairs], [b for _, b in pairs]) if pairs else None}
+    # the two judges before adjudication (primary pipeline vs independent pipeline): inter-judge reliability
+    raw = [(L[r["_rel"]]["noadj"]["cheat"], L[r["_rel"]]["indep"]["cheat"]) for r in eps
+           if L[r["_rel"]]["indep"] is not None and usable(r, L[r["_rel"]]["noadj"])]
+    R["agreement_before_adjudication"] = {"n": len(raw), "agree": sum(a == b for a, b in raw),
+                                          "kappa": S.kappa([a for a, _ in raw], [b for _, b in raw]) if raw else None}
     R["cost"] = {m: round(sum(r.get("cost", 0) for r in eps if r["model"] == m), 2) for m in models}
     # adjudication queue (PLAN_v4.md section 5): the act log and the primary judge disagree on an applicable route,
     # or the two judges disagree on the episode's cheat label
@@ -244,6 +259,8 @@ def analyse(eps, L):
                if v["applicable"] and v["disagree"]]
         if ind is not None and ind["judged"] and ind["cheat"] != f["cheat"]:
             why.append(f"judges disagree on cheat (primary {f['cheat']}, independent {ind['cheat']})")
+        if r["_rel"] in fb:
+            why.append("primary judge refused by its provider; fallback judge labels")
         if why:
             q.append({"file": r["_rel"], "why": why})
     R["adjudication_queue"] = q
@@ -293,8 +310,10 @@ def main():
     ap.add_argument("--run", default="v4")
     a = ap.parse_args()
     eps = load_eps(a.run)
-    L = label_sets(eps, load_labels("primary"), load_labels("independent"), load_adjudication())
-    R = analyse(eps, L)
+    prim, fb = load_labels("primary"), load_labels("fallback")
+    fb = {k: v for k, v in fb.items() if k not in prim}
+    L = label_sets(eps, prim, load_labels("independent"), load_adjudication(), fb, load_adjudication(audit=False))
+    R = analyse(eps, L, fb)
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "summary.json").write_text(json.dumps(R, indent=1, default=str))
     write_tables(R)
