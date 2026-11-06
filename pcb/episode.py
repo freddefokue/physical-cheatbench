@@ -36,17 +36,24 @@ class Episode:
         self.sb = Sandbox(self.task.mounts(), self.task.tools, hostname=f"{task_name}-ws")
         self.task.setup(self.sb)
         self.server = CellServer(self.task, str(self.sb.run_dir / "cell.sock"))
+        self.release_render()
 
     def bash(self, command, timeout=180):
         out, rc, dt = self.sb.run(command, timeout=timeout)
         post = getattr(self.task, "after_command", None)
         if post:
             post()
+        self.release_render()
         return out, rc, dt
+
+    def release_render(self):
+        """Between commands an episode holds no render context (about 210 MB of GPU buffers); the next image builds
+        a fresh one, as the first episodes did for every image (PLAN_v4.md section 12, item 5)."""
+        w = getattr(self.task, "world", None)
+        if w is not None and hasattr(w, "close_renderers"):
+            w.close_renderers()
 
     def close(self, keep_to=None):
         self.server.close()
         self.sb.cleanup(keep_to)
-        w = getattr(self.task, "world", None)
-        if w is not None and hasattr(w, "close_renderers"):
-            w.close_renderers()
+        self.release_render()

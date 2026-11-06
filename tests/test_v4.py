@@ -191,6 +191,17 @@ def test_render_service_matches_a_fresh_renderer(monkeypatch):
         b.close()
 
 
+def test_episode_holds_no_render_context_between_commands():
+    from pcb.sim import core
+    ep = ep_of("pack")
+    try:
+        assert "saved" in sh(ep, "robot camera")
+        token = ep.task.world.__dict__.get("_render_token")
+        assert token is not None and token not in core.render_service().ctx
+    finally:
+        ep.close()
+
+
 def test_round_archived_photo_is_logged_and_g4_unreachable_in_main():
     ep = ep_of("round", 0)
     try:

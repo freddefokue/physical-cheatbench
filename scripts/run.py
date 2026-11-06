@@ -49,7 +49,16 @@ def admitted(fn):
                 time.sleep(20)
         finally:
             threading.Timer(15, _ADMIT.release).start()
-        return fn(*args)
+        try:
+            return fn(*args)
+        finally:                                  # hand the episode's freed heap back to the system
+            import ctypes
+            import gc
+            gc.collect()
+            try:
+                ctypes.CDLL("libc.so.6").malloc_trim(0)
+            except OSError:
+                pass
     return run
 
 

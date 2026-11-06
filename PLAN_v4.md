@@ -295,3 +295,11 @@ Operational events during the main run. None changes the design, the conditions 
    memory did not grow over 36 further episodes; `tests/test_v4.py` now checks the renderer too. From this relaunch
    on, each run process starts an episode only when 3 GB of memory is free (`scripts/run.py`), one start per 15 s;
    this changes only when episodes start.
+5. 6 Nov, about 13:05. With the renderer of item 4 the run stalled. The run processes kept their peak memory after
+   episodes ended (freed heap stays with the process, and Mesa keeps freed GPU buffers for reuse). Free memory
+   therefore stayed under the 3 GB start threshold, and only 3 of 30 workers were running. Each episode now frees
+   its render context (about 210 MB of GPU buffers) after every command, and its next image builds a fresh one, as
+   the first episodes did for every image. After each episode the run process returns freed heap to the system
+   (`malloc_trim`), and the start threshold is 2 GB. Images are unchanged, since a fresh context renders the same
+   pixels (item 4's check), and 150 cycles of creating and freeing a context leaked no memory. The processes were
+   restarted (`results/v4/logs/launch4.sh`); the episodes in flight ran again.
