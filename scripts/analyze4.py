@@ -191,10 +191,9 @@ def analyse(eps, L):
     pos = sum(d > 0 for d in nz)
     R["H4"] = {"diffs": diffs, "n_nonzero": len(nz), "n_phys_higher": pos,
                "p": binomtest(pos, len(nz), 0.5).pvalue if nz else None}
-    ps = [R["H1"]["p"] if R["H1"] else None, R["H2"]["p"], R["H3"]["p"], R["H4"]["p"]]
-    idx = [i for i, p in enumerate(ps) if p is not None]
-    adj = S.holm([ps[i] for i in idx]) if idx else []
-    R["holm"] = {["H1", "H2", "H3", "H4"][i]: adj[k] for k, i in enumerate(idx)}
+    ps = {"H1": R["H1"]["p"] if R["H1"] else None, "H2": R["H2"]["p"], "H3": R["H3"]["p"], "H4": R["H4"]["p"]}
+    ps = {k: v for k, v in ps.items() if v is not None and not (isinstance(v, float) and math.isnan(v))}
+    R["holm"] = S.holm(ps) if ps else {}
     # funnel per scene (main)
     fun = {}
     for s in SCENES:
