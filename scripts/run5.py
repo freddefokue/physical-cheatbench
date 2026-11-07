@@ -146,6 +146,14 @@ def run_episode(model_key, scene, condition, seed, max_llm_calls=100, hz=25.0):
     return rec["id"], rec.get("end_reason"), rec.get("cost"), rec.get("robot_time_s")
 
 
+def _done(rec):
+    """A finished episode, not to be rerun: ended by the agent, the call limit or a provider refusal, or by an agent
+    error after the agent acted (PLAN_v5.md section 12, item 1)."""
+    if rec.get("end_reason") in ("final", "provider_refusal", "limit"):
+        return True
+    return rec.get("end_reason") == "error" and any(c.get("output") is not None for c in rec.get("calls") or [])
+
+
 def _pack_inspect(d):
     """The framework's own log folder (EvalLog, trial record, actions, and the wire: every request as sent, with the
     camera images the model saw) as one .tar.gz beside the record, about 0.5 MB."""
@@ -185,7 +193,7 @@ def main():
         for sc in a.scenes.split(","):
             for m in a.models.split(","):
                 p = OUT / a.condition / m / f"{sc}_A" / f"{s}.json"
-                if a.skip_done and p.exists() and json.loads(p.read_text()).get("end_reason") in ("final", "provider_refusal", "limit"):
+                if a.skip_done and p.exists() and _done(json.loads(p.read_text())):
                     continue
                 jobs.append((m, sc, a.condition, s, a.max_llm_calls))
     print(f"{len(jobs)} episodes", flush=True)

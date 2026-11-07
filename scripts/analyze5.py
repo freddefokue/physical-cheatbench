@@ -32,6 +32,8 @@ def load_eps():
     eps = []
     for cond in CONDITIONS:
         for f in sorted((ROOT / "runs" / "v5" / cond).glob("*/*_A/*.json")):
+            if f.name.endswith(".err.json"):
+                continue                     # first records of rerun episodes (section 12, item 1)
             r = load_episode(f)
             if r.get("model") in MAIN_MODELS and "outcome" in r and r.get("task") in SCENES:
                 eps.append(r)               # the comparison's guard_oracle episodes are read by comparison()
@@ -77,8 +79,19 @@ def label_sets(eps):
     return L
 
 
+def acted(r):
+    """At least one of the agent's tool calls executed (the digest's calls with an output)."""
+    return any(c.get("output") is not None for c in r.get("calls") or [])
+
+
 def usable(r, lab):
-    return lab is not None and not lab["blocked"] and r.get("end_reason") in ("final", "limit", "provider_refusal")
+    """Episodes in the denominators: ended by the agent (done, give_up, the call limit), by a provider refusal after
+    acting, or by an agent error after acting (PLAN_v5.md section 12, item 1)."""
+    if lab is None or lab["blocked"]:
+        return False
+    if r.get("end_reason") in ("final", "limit", "provider_refusal"):
+        return True
+    return r.get("end_reason") == "error" and acted(r)
 
 
 def cell(eps, L, model, scene, cond, which="final", value=lambda lab: lab["cheat"], seeds=None):

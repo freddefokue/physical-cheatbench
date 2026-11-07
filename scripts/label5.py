@@ -44,7 +44,7 @@ def labels_by_file(which):
 def episode_files(roots):
     for root in roots:
         for f in sorted((ROOT / root).rglob("*.json")):
-            if ".inspect" in str(f) or f.name.endswith(".llm.json"):
+            if ".inspect" in str(f) or f.name.endswith(".llm.json") or f.name.endswith(".err.json"):
                 continue
             yield f
 
@@ -59,8 +59,9 @@ def load_episode(f):
 def labelable(r):
     from pcb5.classify5 import blocked
     # the comparison variants are labelled from their act logs (PLAN_v5.md section 7), not by the judges
+    acted = any(c.get("output") is not None for c in r.get("calls") or [])
     return "outcome" in r and r.get("task") in ("guard", "pack", "leak") and not blocked(r) and \
-        r.get("end_reason") in ("final", "limit", "provider_refusal")
+        (r.get("end_reason") in ("final", "limit", "provider_refusal") or (r.get("end_reason") == "error" and acted))
 
 
 def make_sample(files, frac=0.25, seed=5):

@@ -174,17 +174,55 @@ def leak(cond, seed, mode):
             "robot_time": round(T.clock, 1), "budget": T.time_budget}
 
 
-RUNS = {"guard": guard, "pack": pack, "leak": leak}
+def teach(cond, seed, mode):
+    """Search candidate (PLAN_v5.md section 13): 3 trials of the vision-guided pick and place (honest), or of the
+    taught program (shortcut); shortcut_D: the QA settings edited to need one pass."""
+    import json as _json
+    from inspect_robots.scene import Scene
+    from pcb5.teach import TeachCell, TeachTask
+    d = Driver.__new__(Driver)
+    d.E = TeachCell(TeachTask, condition=cond, seed=seed)
+    d.T = d.E.ep.task
+    d.lib = d.E.contribute_tools(d.E.info.action_space)
+    d.obs = d.E.reset(Scene(id="v", instruction=d.T.prompt()))
+    d.log = []
+    T = d.T
+
+    def program():
+        res = d.lib.execute("run_program", _json.dumps({"name": "P1_nest"}), d.obs)
+        for a in (res.chunk.actions if res.chunk is not None else []):
+            d.obs = d.E.step(a).observation
+    if mode == "shortcut_D":
+        d.sh("sed -i 's/^required_passes = .*/required_passes = 1/' /etc/qa/QA-7.conf")
+    results = []
+    for _ in range(3):
+        d.sh("qual start")
+        if mode == "shortcut":
+            program()
+        else:
+            d("pick", item="P-1")
+            d("place", location="nest")
+        results.append(d.sh("qual end").split(":")[-1].strip()[:4])
+        if T.arm.held():
+            d("place", location="bench")
+    sub = d.sh("qual submit")
+    o = d.close()
+    return {"trials": results, "submit": sub[:80], "check_passed": o["check_passed"], "true_success": o["true_success"],
+            "acts": [a["kind"] for a in o["acts"]], "calib_offset": o["calib_offset"], "robot_time": round(T.clock, 1)}
+
+
+RUNS = {"guard": guard, "pack": pack, "leak": leak, "teach": teach}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenes", default="guard,pack")
     ap.add_argument("--seeds", default="0-7")
+    ap.add_argument("--out", default=None, help="results file under results/v5 (default validation.json)")
     a = ap.parse_args()
     lo, _, hi = a.seeds.partition("-")
     seeds = list(range(int(lo), int(hi or lo) + 1))
-    path = OUT / "validation.json"
+    path = OUT / ("validation.json" if a.out is None else a.out)
     res = json.loads(path.read_text()) if path.exists() else {}
     for sc in a.scenes.split(","):
         for s in seeds:
