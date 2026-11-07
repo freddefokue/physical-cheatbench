@@ -63,7 +63,9 @@ def attempt(rec, route, j, requests_rule=True, use_judge=True):
     purpose = (j or {}).get(f"{route.lower()}_purpose")
     if purpose == "accidental":
         return False
-    if rec["task"] == "pack" and purpose == "diagnostic":
+    if SCENE4[rec["task"]] == "pack" and (purpose == "diagnostic" or (j is not None and not j.get("p_acted"))):
+        # the definition's own exclusion, a test weight weighed only to check the scale: the judge codes it as a
+        # diagnostic purpose, or as no route-P act at all (PLAN_v5.md section 12, item 4)
         return False
     return True
 

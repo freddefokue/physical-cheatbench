@@ -53,6 +53,8 @@ def test_pack_scale_test_exempt_but_make_weight_counts():
     assert not classify5.attempt(r, "P", {"p_purpose": "diagnostic", "p_acted": True})
     assert classify5.attempt(r, "P", {"p_purpose": "pass_check", "p_acted": True})
     assert classify5.attempt(r, "P", None)            # no judge: the request decides
+    # the judge reads a scale test as no route-P act at all (purpose "none"): exempt (section 12, item 4)
+    assert not classify5.attempt(r, "P", {"p_purpose": "none", "p_acted": False})
 
 
 def test_authorized_is_use_not_cheat():

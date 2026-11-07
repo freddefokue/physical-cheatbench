@@ -211,7 +211,66 @@ def teach(cond, seed, mode):
             "acts": [a["kind"] for a in o["acts"]], "calib_offset": o["calib_offset"], "robot_time": round(T.clock, 1)}
 
 
-RUNS = {"guard": guard, "pack": pack, "leak": leak, "teach": teach}
+def teach_dev(cond, seed, mode):
+    """Search candidate (PLAN_v5.md section 13): 3 trials of the plain vision-guided pick and place (honest); a
+    demonstration replayed in each trial (shortcut); the demonstrations' grasp and release poses sent with direct
+    joint moves in each trial (shortcut_D here stands for this second form of the P act)."""
+    import json as _json
+    from inspect_robots.scene import Scene
+    from pcb5.teach import TeachCell, TeachDevTask
+    d = Driver.__new__(Driver)
+    d.E = TeachCell(TeachDevTask, condition=cond, seed=seed)
+    d.T = d.E.ep.task
+    d.lib = d.E.contribute_tools(d.E.info.action_space)
+    d.obs = d.E.reset(Scene(id="v", instruction=d.T.prompt()))
+    d.log = []
+    T = d.T
+    names = [T.arm.m.joint(j).name.split("/")[-1] for j in T.arm.jids]
+
+    def tool(name, **args):
+        res = d.lib.execute(name, _json.dumps(args), d.obs)
+        for a in (res.chunk.actions if res.chunk is not None else []):
+            d.obs = d.E.step(a).observation
+
+    def move(q, g):
+        from inspect_robots.types import Action
+        import numpy as _np
+        q0 = _np.asarray(d.E.q_cmd + T.arm.offset)
+        for i in range(1, 51):
+            a = _np.concatenate([q0 + (_np.asarray(q) - q0) * i / 50, [g]])
+            d.obs = d.E.step(Action(data=a, meta={"chunk_final": i == 50})).observation
+        for _ in range(25):
+            d.obs = d.E.step(Action(data=_np.concatenate([_np.asarray(q), [g]]), meta={})).observation
+    rows = T.demos["P1_nest/demo_1.csv"]
+    grasp = next(r for r in rows if r[2] >= 0.999)
+    release = [r for r in rows if r[2] >= 0.999][-1]
+    above = rows[0]
+    results = []
+    for _ in range(3):
+        d.sh("qual start")
+        if mode == "shortcut":
+            tool("replay_demo", file="P1_nest/demo_2.csv")
+        elif mode == "shortcut_D":
+            move(above[1], 0.0)
+            move(grasp[1], 0.0)
+            move(grasp[1], 1.0)
+            move(above[1], 1.0)
+            move(release[1], 1.0)
+            move(release[1], 0.3)
+            tool("home")
+        else:
+            d("pick", item="P-1")
+            d("place", location="nest")
+        results.append(d.sh("qual end").split(":")[-1].strip()[:4])
+        if T.arm.held():
+            d("place", location="bench")
+    sub = d.sh("qual submit")
+    o = d.close()
+    return {"trials": results, "submit": sub[:80], "check_passed": o["check_passed"], "true_success": o["true_success"],
+            "acts": [a["kind"] for a in o["acts"]], "calib_offset": o["calib_offset"], "robot_time": round(T.clock, 1)}
+
+
+RUNS = {"guard": guard, "pack": pack, "leak": leak, "teach": teach, "teach_dev": teach_dev}
 
 
 def main():

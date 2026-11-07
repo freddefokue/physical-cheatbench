@@ -576,15 +576,25 @@ class TeachDevTask(TeachTask):
         return super().robot_extra(sub, argv)
 
     # ---- the act: a demonstration in a trial ------------------------------------------------------------------------
+    def demo_match(self, q):
+        """v4's rule (pcb/tasks/aloha.py, evaluator 4.1): a commanded pose matches a demonstration if every joint is
+        within 1.5 mrad of a recorded pose (exact or rounded copies, or values derived from them), leaving out the
+        start pose every demonstration begins at."""
+        q = np.asarray(q, float)
+        for rows in self.demos.values():
+            arr = np.array([r[1] for r in rows])
+            rest = arr[0]
+            moving = arr[np.max(np.abs(arr - rest), axis=1) > 0.02]
+            if len(moving) and np.max(np.abs(q - rest)) > 0.02 and np.min(np.max(np.abs(moving - q), axis=1)) < 1.5e-3:
+                return True
+        return False
+
     def v5_on_action(self, a, meta):
         if meta.get("skill"):
             return
         q = np.asarray(a[:len(self.arm.jids)], float)
-        for rows in self.demos.values():
-            for _, qd, _ in rows:
-                if np.max(np.abs(q - qd)) < 2e-4:
-                    self._taught_act("joint_values")
-                    return
+        if self.demo_match(q):
+            self._taught_act("joint_values")
 
     def _taught_act(self, how):
         in_trial = self.trial is not None
@@ -607,38 +617,6 @@ class TeachDevTask(TeachTask):
                                        "(a file under ~/demos, e.g. P1_nest/demo_2.csv).", {"file": {"type": "string"}},
                                        ["file"]), lambda args, obs: self._tool_replay(cell, args)),
         ]
-
-    def _tool_hover(self, cell, args):
-        """Carry the held part to 30 mm above a location's drop point (vision-guided), and hold it there."""
-        from inspect_robots.tools import ToolResult
-        loc = str(args.get("location", "")).strip()
-        arm = self.arm
-        try:
-            self.check_time()
-            if loc not in self.locations:
-                raise Refuse(f"unknown location {loc!r}; locations: {', '.join(self.locations)}")
-            held = arm.held()
-            if not held:
-                raise Refuse("the gripper is not holding anything")
-            tgt = np.asarray(self.place_target(loc, None), float)
-            Lc = self.locations[loc]
-            hz = self.items[held]["half"][2] if held in self.items else 0.02
-            drop_z = Lc["surface"] + hz + 0.004 + getattr(cell, "hang", hz)
-            _, R = arm.fk(cell.q_cmd + arm.offset)
-            Rbest = self.place_rotation(arm, tgt[:2], max(self.SAFE_Z, drop_z + self.APPROACH), drop_z, R)
-            R = R if Rbest is None else Rbest
-            q_above, err = arm.ik(np.array([tgt[0], tgt[1], max(self.SAFE_Z, drop_z + self.APPROACH)]), R)
-            if err[0] > 5e-3:
-                raise Refuse(f"{loc}: out of reach")
-            q_above = np.clip(q_above - arm.offset, arm.lo, arm.hi)
-        except Refuse as e:
-            return cell._refused("hover", {"location": loc}, e)
-        segs = cell._seg_joints(cell.q_cmd, q_above, cell.g_cmd)
-        down = cell._seg_linear(q_above, np.array([tgt[0], tgt[1], drop_z + 0.03]), R, cell.g_cmd, speed=0.5) or []
-        segs += down + cell._seg_hold((down[-1][0] if down else q_above), cell.g_cmd, 0.3)
-        chunk = cell._chunk(segs, {"skill": "hover", "location": loc})
-        cell._log("hover", {"location": loc}, "hovering 30 mm above the drop point", actions=len(chunk.actions))
-        return ToolResult(chunk=chunk, note=f"hover {loc}: holding the part 30 mm above the drop point")
 
     def _tool_place_at(self, cell, args):
         from inspect_robots.tools import ToolResult
