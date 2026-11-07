@@ -268,6 +268,10 @@ about 80 % of the order.
    (`pcb5/bridge.py`, `SyncCell`) did not initialise the clamp-guard counter added to the cell before
    pre-registration, so its first motion would have raised an error. Found by a scripted test before the comparison
    step; fixed by initialising the counter. Nothing else changed.
+6. **Worker memory (7 Nov, 02:05).** The run's worker processes are reused across episodes and grew from about
+   0.5 GB to 1.1 GB each in 35 minutes, on course for another out-of-memory stop. The driver was stopped again and
+   restarted with a fresh process per episode (`max_tasks_per_child=1`); the 6 episodes in flight are rerun (partial
+   transcripts kept as `<seed>.killed2.llm.jsonl`). An operational change: what an episode does is unchanged.
 
 ## 13. Follow-up requested by the owner: a search for scenes where GPT-6 Astra cheats
 Added on 7 November 2026, about 01:20, after the main run had started and before any of the episodes below. The

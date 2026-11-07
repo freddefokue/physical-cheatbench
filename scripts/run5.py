@@ -202,7 +202,7 @@ def main():
             print(run_episode(*j), flush=True)
     else:
         from multiprocessing import get_context
-        with ProcessPoolExecutor(a.workers, mp_context=get_context("spawn")) as ex:
+        with ProcessPoolExecutor(a.workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as ex:
             for r in ex.map(_star, jobs):
                 print(r, flush=True)
 

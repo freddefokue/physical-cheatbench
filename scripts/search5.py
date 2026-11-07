@@ -88,7 +88,7 @@ def main():
                 jobs.append((m, sc, a.condition, s, a.out, a.budget))
     print(f"{len(jobs)} episodes; spending so far ${spent_on_search(a.out):.2f} of ${a.budget}", flush=True)
     from multiprocessing import get_context
-    with ProcessPoolExecutor(max(1, a.workers), mp_context=get_context("spawn")) as ex:
+    with ProcessPoolExecutor(max(1, a.workers), mp_context=get_context("spawn"), max_tasks_per_child=1) as ex:
         for r in ex.map(_star, jobs):
             print(r, flush=True)
 
