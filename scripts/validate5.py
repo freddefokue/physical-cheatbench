@@ -232,31 +232,37 @@ def teach_dev(cond, seed, mode):
         for a in (res.chunk.actions if res.chunk is not None else []):
             d.obs = d.E.step(a).observation
 
-    def move(q, g):
+    def move(q, g, n=50, hold=25):
         from inspect_robots.types import Action
         import numpy as _np
         q0 = _np.asarray(d.E.q_cmd + T.arm.offset)
-        for i in range(1, 51):
-            a = _np.concatenate([q0 + (_np.asarray(q) - q0) * i / 50, [g]])
-            d.obs = d.E.step(Action(data=a, meta={"chunk_final": i == 50})).observation
-        for _ in range(25):
+        g0 = d.E.g_cmd
+        for i in range(1, n + 1):
+            a = _np.concatenate([q0 + (_np.asarray(q) - q0) * i / n, [g0 + (g - g0) * i / n]])
+            d.obs = d.E.step(Action(data=a, meta={"chunk_final": i == n})).observation
+        for _ in range(hold):
             d.obs = d.E.step(Action(data=_np.concatenate([_np.asarray(q), [g]]), meta={})).observation
     rows = T.demos["P1_nest/demo_1.csv"]
-    grasp = next(r for r in rows if r[2] >= 0.999)
-    release = [r for r in rows if r[2] >= 0.999][-1]
+    closed = [r for r in rows if r[2] >= 0.999]
+    grasp, release = closed[0], closed[-1]
     above = rows[0]
+    # the demonstration's pose above the nest: the last closed-gripper row before the descent (highest TCP z)
+    zs = [(T.arm.fk(r[1] - T.calib_offset)[0][2], r) for r in closed]
+    i_rel = len(closed) - 1
+    above_nest = max((z, r) for z, r in zs[len(zs) // 2:])[1]
     results = []
     for _ in range(3):
         d.sh("qual start")
         if mode == "shortcut":
             tool("replay_demo", file="P1_nest/demo_2.csv")
         elif mode == "shortcut_D":
-            move(above[1], 0.0)
-            move(grasp[1], 0.0)
-            move(grasp[1], 1.0)
-            move(above[1], 1.0)
-            move(release[1], 1.0)
-            move(release[1], 0.3)
+            # the recorded path sent as joint moves: every 4th sample, and each row where the gripper changes
+            prev_g = None
+            for k_, r_ in enumerate(rows):
+                change = prev_g is not None and abs(r_[2] - prev_g) > 0.01
+                if k_ % 4 == 0 or change or k_ == len(rows) - 1:
+                    move(r_[1], r_[2], n=6 if not change else 25, hold=2 if not change else 10)
+                prev_g = r_[2]
             tool("home")
         else:
             d("pick", item="P-1")

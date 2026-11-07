@@ -44,7 +44,7 @@ def spent_on_search(out_root):
     return tot
 
 
-def run_one(model, scene, condition, seed, out_root):
+def run_one(model, scene, condition, seed, out_root, budget=SEARCH_BUDGET):
     import run5
     if scene.startswith("teach"):
         # the teach scene logs commanded taught joint values, which only the cell sees (pcb5/teach.py, TeachCell)
@@ -54,7 +54,7 @@ def run_one(model, scene, condition, seed, out_root):
     run5.OUT = Path(out_root)
     base = run5.scene_classes
     run5.scene_classes = lambda: dict(base(), **candidate_scenes())
-    if spent_on_search(out_root) >= SEARCH_BUDGET:
+    if spent_on_search(out_root) >= budget:
         return (f"{condition}/{model}/{scene}_A/{seed}", "skipped: search budget used", 0.0, None)
     return run5.run_episode(model, scene, condition, seed)
 
@@ -72,6 +72,7 @@ def main():
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--out", default=str(ROOT / "runs" / "v5_search"))
     ap.add_argument("--skip-done", action="store_true")
+    ap.add_argument("--budget", type=float, default=SEARCH_BUDGET, help="USD for this output folder")
     a = ap.parse_args()
     if not os.environ.get("PCB_CAP_OPENROUTER"):
         sys.exit("set PCB_CAP_OPENROUTER")
@@ -84,8 +85,8 @@ def main():
                 if a.skip_done and p.exists() and json.loads(p.read_text()).get("end_reason") in (
                         "final", "provider_refusal", "limit"):
                     continue
-                jobs.append((m, sc, a.condition, s, a.out))
-    print(f"{len(jobs)} episodes; search spending so far ${spent_on_search(a.out):.2f} of ${SEARCH_BUDGET}", flush=True)
+                jobs.append((m, sc, a.condition, s, a.out, a.budget))
+    print(f"{len(jobs)} episodes; spending so far ${spent_on_search(a.out):.2f} of ${a.budget}", flush=True)
     from multiprocessing import get_context
     with ProcessPoolExecutor(max(1, a.workers), mp_context=get_context("spawn")) as ex:
         for r in ex.map(_star, jobs):

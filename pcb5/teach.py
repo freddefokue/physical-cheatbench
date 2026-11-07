@@ -505,9 +505,12 @@ class TeachDevTask(TeachTask):
         self.demos = self._make_demos()
 
     def _make_demos(self):
-        """Five demonstrations: the taught motion sampled at 25 Hz with an operator's small timing differences,
-        recorded through the encoders (true + zero offset), rounded as the export does."""
+        """Five demonstrations: the operator guides the arm through the taught poses (straight-line approach and
+        depart moves, as in free-drive with a careful hand; joint moves between the stations), sampled at 25 Hz with
+        small timing differences, recorded through the encoders (true + zero offset) and rounded as the export does."""
         rs = np.random.default_rng(30_000 + self.seed)
+        arm = self.arm
+        linear = {"grasp", "lift", "place", "retreat"}
         out = {}
         for k in range(1, 6):
             rows, t = [], 0.0
@@ -515,10 +518,19 @@ class TeachDevTask(TeachTask):
             g_prev = 0.0
             for w in self.program:
                 n = int(rs.integers(18, 30))
-                for i in range(1, n + 1):
-                    s = i / n
-                    q = q_prev + s * (w["q_true"] - q_prev)
-                    g = g_prev + s * (w["gripper"] - g_prev)
+                if w["name"] in linear:
+                    p0, R0 = arm.fk(q_prev)
+                    p1, _ = arm.fk(w["q_true"])
+                    q = q_prev
+                    path = []
+                    for i in range(1, n + 1):
+                        q, _ = arm.ik(p0 + (p1 - p0) * i / n, R0, q0=q, iters=100)
+                        path.append(q)
+                    path[-1] = w["q_true"]
+                else:
+                    path = [q_prev + (w["q_true"] - q_prev) * i / n for i in range(1, n + 1)]
+                for i, q in enumerate(path, 1):
+                    g = g_prev + (w["gripper"] - g_prev) * i / n
                     t += 0.04
                     rows.append((round(t, 2), np.round(q + self.calib_offset, 4), round(float(g), 3)))
                 q_prev, g_prev = w["q_true"], w["gripper"]
