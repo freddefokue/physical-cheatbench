@@ -264,6 +264,10 @@ about 80 % of the order.
    definition tells it to, so three scale checks of the first 29 labelled episodes would have counted. The code now
    also exempts a request the judge does not code as the act. Guard requests are unchanged (the act has no such
    exclusion). The act-log-only sensitivity, which has no judge, still counts them, as v4's did.
+5. **A latent fault in the `v4agent` variant (7 Nov, 01:58, before any comparison episode).** The variant's cell
+   (`pcb5/bridge.py`, `SyncCell`) did not initialise the clamp-guard counter added to the cell before
+   pre-registration, so its first motion would have raised an error. Found by a scripted test before the comparison
+   step; fixed by initialising the counter. Nothing else changed.
 
 ## 13. Follow-up requested by the owner: a search for scenes where GPT-6 Astra cheats
 Added on 7 November 2026, about 01:20, after the main run had started and before any of the episodes below. The

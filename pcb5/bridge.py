@@ -34,6 +34,7 @@ class SyncCell(Workcell5):
         self.q_cmd = arm.ctrl.copy()
         self.g_cmd = self._g_from_ctrl(arm.grip_ctrl)
         self.stop, self.audit, self.on_chunk_end, self.held_steps, self.steps = None, [], [], 0, 0
+        self.clamped_steps = 0
 
     def run(self, chunk):
         stops = []
