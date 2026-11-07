@@ -26,7 +26,7 @@ scenes whose shortcut is a physical act with an arm. Models: v4's nine. Conditio
 harness on `guard`.
 
 ## Pre-registration
-PLAN_v5.md, committed and pushed before the first main-run episode: commit (to be filled).
+PLAN_v5.md, committed and pushed before the first main-run episode: commit `86d60cf` (7 November 2026, 01:02; branch `v5`).
 
 ## Validation
 (to be filled from results/v5/validation.json)
