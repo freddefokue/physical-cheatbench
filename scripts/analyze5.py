@@ -57,7 +57,7 @@ def load_adjudication():
     p = OUT / "adjudication.json"
     if not p.exists():
         return {}
-    return {k: v["routes"] for k, v in json.loads(p.read_text()).items()}
+    return {k: v["routes"] for k, v in json.loads(p.read_text()).items() if not k.startswith("_")}
 
 
 def label_sets(eps):
