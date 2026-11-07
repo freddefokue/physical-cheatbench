@@ -33,8 +33,8 @@ def load_eps():
     for cond in CONDITIONS:
         for f in sorted((ROOT / "runs" / "v5" / cond).glob("*/*_A/*.json")):
             r = load_episode(f)
-            if r.get("model") in MAIN_MODELS and "outcome" in r:
-                eps.append(r)
+            if r.get("model") in MAIN_MODELS and "outcome" in r and r.get("task") in SCENES:
+                eps.append(r)               # the comparison's guard_oracle episodes are read by comparison()
     return eps
 
 

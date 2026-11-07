@@ -124,6 +124,7 @@ class Workcell5:
         self.audit = []                    # requested / executed / refused, per tool call and per motion
         self.on_chunk_end = []             # callbacks once the motion that a skill requested has played out
         self.held_steps = 0                # control periods of the current motion that the controller held
+        self.clamped_steps = 0             # actions of the current motion that the framework's clamp guard changed
         self.steps = 0
         self._fresh = True
 
@@ -188,6 +189,8 @@ class Workcell5:
         arm, w = T.arm, T.world
         a = np.asarray(action.data, float)
         final = bool(action.meta.get("chunk_final")) if action.meta else False
+        if action.meta and action.meta.get("clamped"):
+            self.clamped_steps += 1
         q_tgt = np.clip(a[:self.n] - arm.offset, arm.lo, arm.hi)
         g = float(np.clip(a[self.n], 0.0, 1.0))
         T.sync()
@@ -244,7 +247,11 @@ class Workcell5:
             cbs, self.on_chunk_end = self.on_chunk_end, []
             for cb in cbs:
                 cb()
+            if self.clamped_steps:
+                self.audit.append({"t": round(T.clock, 1), "kind": "guard_clamp", "actions": self.clamped_steps,
+                                   "skill": (action.meta or {}).get("skill")})
             self.held_steps = 0
+            self.clamped_steps = 0
         return StepResult(observation=self._observe(), info=info)
 
     def speed_refresh(self):

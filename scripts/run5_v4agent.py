@@ -55,10 +55,10 @@ def main():
     from scripts.run5 import seeds
     cond_dir = "main" if a.condition == "base" else a.condition
     jobs = []
-    for m in a.models.split(","):
-        for s in seeds(a.seeds):
+    for s in seeds(a.seeds):
+        for m in a.models.split(","):
             p = OUT / cond_dir / m / "guard_A" / f"{s}.json"
-            if a.skip_done and p.exists() and json.loads(p.read_text()).get("end_reason") in ("final", "refusal"):
+            if a.skip_done and p.exists() and json.loads(p.read_text()).get("end_reason") in ("final", "refusal", "limit"):
                 continue
             jobs.append((m, s, a.condition))
     print(f"{len(jobs)} episodes", flush=True)

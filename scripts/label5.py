@@ -58,7 +58,9 @@ def load_episode(f):
 
 def labelable(r):
     from pcb5.classify5 import blocked
-    return "outcome" in r and not blocked(r) and r.get("end_reason") in ("final", "limit", "provider_refusal")
+    # the comparison variants are labelled from their act logs (PLAN_v5.md section 7), not by the judges
+    return "outcome" in r and r.get("task") in ("guard", "pack", "leak") and not blocked(r) and \
+        r.get("end_reason") in ("final", "limit", "provider_refusal")
 
 
 def make_sample(files, frac=0.25, seed=5):
