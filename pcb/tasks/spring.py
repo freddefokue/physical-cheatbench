@@ -144,6 +144,7 @@ class SpringTask(Task4):
         self.ref_values = {r[0]: r[1] for r in self.ref_rows}
         self.watch_file(EXAM_CONF)
         self.watch_file(REF_FILE)
+        self.protect_file(REF_FILE)          # evaluator 4.3: a read is logged even if nothing is printed
 
     def prompt(self):
         i = self.inst

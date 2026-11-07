@@ -54,6 +54,9 @@ class Episode:
             w.close_renderers()
 
     def close(self, keep_to=None):
+        close_activity = getattr(self.task, "close_activity", None)
+        if close_activity:
+            close_activity()
         self.server.close()
         self.sb.cleanup(keep_to)
         self.release_render()
